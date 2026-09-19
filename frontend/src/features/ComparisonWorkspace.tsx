@@ -1,0 +1,311 @@
+import { useEffect, useRef, useState } from 'react'
+import {
+  checkedFields, compareDocuments, fieldTitles, parseExtraction, reviewReasons,
+  type CheckedField, type ComparisonResult, type CompareResponse, type CompareStatus,
+  type ExtractedDocument, type FieldStatus,
+} from '../lib/api'
+import { Icon } from '../components/Icon'
+
+/** A reviewer's resolution of a case the rules refused to decide. */
+type Decision = { status: 'OK' | 'MISMATCH'; fields: CheckedField[]; note: string }
+type Filter = 'all' | 'MISMATCH' | 'NEEDS_REVIEW' | 'OK'
+
+const PAGE_SIZE = 20
+
+const example: ExtractedDocument[] = [
+  {
+    file: 'demo_001_SI.txt', status: 'ok', flag_reason: null, fields: {},
+    raw_text: 'SHIPPING INSTRUCTION\nShipper: APRIL FAR EAST (M) SDN BHD\nConsignee (Non-Negotiable): EAST BRIGHT FZ-LLC\nNotify: EAST BRIGHT FZ-LLC\nPort of Loading (POL): NANTONG, CHINA (CNNTG)\nPOD: KARACHI, PAKISTAN (PKKHI)\nTotal Containers: 6 x 40\'HC\nGross Wt (kgs): 131,058 KG\n',
+  },
+  {
+    file: 'demo_001_BL.txt', status: 'ok', flag_reason: null, fields: {},
+    raw_text: 'BILL OF LADING (DRAFT)\nSHIPPER: APRIL FAR EAST (M) SDN BHD\nTo the Order of: UAB NOVAKOPA\nNotify Party: UAB NOVAKOPA\nLoad Port: NANTONG, CHINA (CNNTG)\nPort of Discharge: KARACHI, PAKISTAN (PKKHI)\nContainer Count: 5 x 40\'HC\nGross Weight (KG): 131,058 KG\n',
+  },
+]
+
+/** Status is never carried by colour alone: every badge pairs a mark with a word. */
+function StatusBadge({ status, decided = false }: { status: CompareStatus; decided?: boolean }) {
+  const shown = { OK: ['green', 'check', 'No mismatch'], MISMATCH: ['red', 'info', 'Mismatch'], NEEDS_REVIEW: ['amber', 'info', 'Needs review'] } as const
+  const [tone, icon, text] = shown[status]
+  return <span className={`badge ${tone}`}><Icon name={icon} />{text}{decided ? ' · confirmed' : ''}</span>
+}
+
+function FieldBadge({ status }: { status: FieldStatus }) {
+  const shown = { match: ['green', 'check', 'Match'], mismatch: ['red', 'info', 'Mismatch'], review: ['amber', 'info', 'Review'] } as const
+  const [tone, icon, text] = shown[status]
+  return <span className={`badge ${tone}`}><Icon name={icon} />{text}</span>
+}
+
+export function ComparisonWorkspace({ debug = false }: { debug?: boolean }) {
+  const [input, setInput] = useState(() => JSON.stringify({ documents: example }, null, 2))
+  const [inputSummary, setInputSummary] = useState('Sample loaded: one SI and one draft BL with a changed consignee and container count.')
+  const [response, setResponse] = useState<CompareResponse | null>(null)
+  const [decisions, setDecisions] = useState<Record<string, Decision>>({})
+  const [busy, setBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [openEmail, setOpenEmail] = useState<string | null>(null)
+  const controller = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+  const prefix = debug ? 'debug-compare' : 'pipeline-compare'
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; controller.current?.abort() }
+  }, [])
+  useEffect(() => { if (error) document.getElementById(`${prefix}-error`)?.focus() }, [error, prefix])
+
+  async function run(documents: ExtractedDocument[]) {
+    if (controller.current) return
+    const abort = new AbortController()
+    controller.current = abort
+    setBusy(true); setError('')
+    const timeout = window.setTimeout(() => abort.abort(), 120000)
+    try {
+      const result = await compareDocuments(documents, abort.signal)
+      if (mounted.current) { setResponse(result); setDecisions({}); setPage(0); setOpenEmail(result.results[0]?.email_id ?? null) }
+    } catch (cause) {
+      if (mounted.current) setError(abort.signal.aborted ? 'Comparison was stopped or timed out. Run it again.' : cause instanceof Error ? cause.message : 'Could not reach the backend.')
+    } finally {
+      window.clearTimeout(timeout); controller.current = null
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  function start() {
+    try { void run(parseExtraction(JSON.parse(input))) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Invalid JSON.') }
+  }
+
+  async function importFiles(files: FileList | null) {
+    if (!files) return
+    setImporting(true)
+    try {
+      if (Array.from(files).reduce((total, file) => total + file.size, 0) > 40_000_000) throw new Error('Import size must be below 40 MB.')
+      const documents: ExtractedDocument[] = []
+      for (const file of Array.from(files)) documents.push(...parseExtraction(JSON.parse(await file.text())))
+      const parsed = parseExtraction(documents)
+      const emails = new Set(parsed.map(item => item.file.replace(/_(SI|BL)\.[A-Za-z0-9]+$/i, '')))
+      if (mounted.current) {
+        setInput(JSON.stringify({ documents: parsed }, null, 2))
+        setInputSummary(`${parsed.length} extracted document${parsed.length === 1 ? '' : 's'} loaded, covering ${emails.size} email${emails.size === 1 ? '' : 's'}.`)
+        setError('')
+      }
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : 'Could not read the extraction JSON.')
+    } finally { if (mounted.current) setImporting(false) }
+  }
+
+  const results = response?.results ?? []
+  const effective = (result: ComparisonResult): CompareStatus => decisions[result.email_id]?.status ?? result.status
+  const outstanding = results.filter(result => result.status === 'NEEDS_REVIEW' && !decisions[result.email_id]).length
+
+  // Counts follow the effective status, so resolving a review case moves the
+  // email out of the review tally straight away.
+  const counts = { OK: 0, MISMATCH: 0, NEEDS_REVIEW: 0 }
+  for (const result of results) counts[effective(result)] += 1
+
+  const filtered = results.filter(result =>
+    (filter === 'all' || effective(result) === filter) &&
+    `${result.email_id} ${result.si_document ?? ''} ${result.bl_document ?? ''}`.toLowerCase().includes(search.toLowerCase()))
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const shown = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE)
+
+  function download() {
+    const report = {
+      workspace: debug ? 'debug' : 'pipeline',
+      stage: 'si_bl_comparison',
+      reference_document: 'Shipping Instruction',
+      checked_fields: checkedFields,
+      summary: { ...response?.summary, after_human_review: counts, outstanding_review: outstanding },
+      emails: results.map(result => {
+        const decision = decisions[result.email_id]
+        return {
+          ...result,
+          effective_status: decision?.status ?? result.status,
+          effective_defect_fields: decision ? decision.fields : result.defect_fields,
+          human_decision: decision ?? null,
+          decided_by: decision ? 'human' : 'rules',
+        }
+      }),
+    }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = debug ? 'debug-comparison-report.json' : 'pipeline-comparison-report.json'
+    document.body.append(anchor); anchor.click(); anchor.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  return (
+    <div className="comparison-workspace">
+      {!debug && <div className="metrics" aria-label="Comparison summary">
+        <div><span>Emails checked</span><strong>{String(results.length).padStart(2, '0')}</strong><small>One SI against one draft BL</small></div>
+        <div><span>No mismatch</span><strong className={counts.OK ? 'green-text' : ''}>{String(counts.OK).padStart(2, '0')}</strong><small>All seven fields agree</small></div>
+        <div><span>Mismatch found</span><strong className={counts.MISMATCH ? 'red-text' : ''}>{String(counts.MISMATCH).padStart(2, '0')}</strong><small>At least one field differs</small></div>
+        <div><span>Needs review</span><strong className={outstanding ? 'amber-text' : ''}>{String(counts.NEEDS_REVIEW).padStart(2, '0')}</strong><small>{outstanding ? `${outstanding} still awaiting a person` : 'All resolved'}</small></div>
+      </div>}
+
+      <section className="panel intake" aria-labelledby={`${prefix}-heading`}>
+        <div className="section-heading">
+          <div><p className="eyebrow">{debug ? 'Isolated stage test' : 'Check the documents'}</p><h2 id={`${prefix}-heading`}>{debug ? 'Test SI against draft BL' : 'Compare shipping instructions with draft bills of lading'}</h2></div>
+          <span className="badge blue">POST /api/v1/compare</span>
+        </div>
+        <p>{debug ? 'Send extracted documents straight to the comparison rules and inspect every field decision.' : 'Import the extraction stage output. Documents pair by file name, and the Shipping Instruction is the reference for every check.'}</p>
+
+        <label className="upload-zone">
+          <Icon name="upload" />
+          <span><strong>Choose extraction output</strong><small>The extraction stage JSON, an array of documents, or several files · up to 40 MB</small></span>
+          <input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} />
+        </label>
+        <p className="input-summary">{inputSummary}</p>
+
+        <details className="json-editor" open={debug || undefined}>
+          <summary>{debug ? 'Request body' : 'Or paste extraction JSON / view imported documents'}</summary>
+          <label htmlFor={`${prefix}-json`}>Extraction JSON</label>
+          <textarea id={`${prefix}-json`} value={input} disabled={busy || importing} spellCheck={false}
+            aria-describedby={error ? `${prefix}-error` : undefined}
+            onChange={event => { setInput(event.target.value); setInputSummary('Custom JSON input. Validated when you run the comparison.') }} />
+        </details>
+        {error && <p className="error" id={`${prefix}-error`} role="alert" tabIndex={-1}>{error}</p>}
+
+        <div className="run-toolbar">
+          <button disabled={busy || importing} onClick={start}><Icon name="play" />{busy ? 'Comparing…' : debug ? 'Run comparison test' : 'Run comparison'}</button>
+          {busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop</button>}
+          <span role="status">{importing ? 'Reading files…' : busy ? 'Comparing every pair…' : response ? `${results.length} email${results.length === 1 ? '' : 's'} compared` : 'Rule-based comparison. No document leaves your machine.'}</span>
+        </div>
+      </section>
+
+      {response?.summary.unpaired_files.length ? (
+        <p className="error" role="status">Not compared — these file names do not end in _SI or _BL: {response.summary.unpaired_files.join(', ')}</p>
+      ) : null}
+
+      <section aria-labelledby={`${prefix}-results`}>
+        <div className="results-header">
+          <div><p className="eyebrow">{debug ? 'Test output' : 'Discrepancy report'}</p><h2 id={`${prefix}-results`}>Field-by-field results <span className="count">{results.length}</span></h2></div>
+          <button className="secondary" disabled={!results.length || busy} onClick={download}><Icon name="download" />Export report</button>
+        </div>
+
+        <div className="queue-tools">
+          <label className="search">Search emails<input type="search" value={search} placeholder="Search by email ID or document name" onChange={event => { setSearch(event.target.value); setPage(0) }} /></label>
+          <div className="segmented" role="group" aria-label="Filter by outcome">
+            {([['all', `All (${results.length})`], ['MISMATCH', `Mismatch (${counts.MISMATCH})`], ['NEEDS_REVIEW', `Needs review (${counts.NEEDS_REVIEW})`], ['OK', `No mismatch (${counts.OK})`]] as [Filter, string][])
+              .map(([value, text]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setPage(0) }}>{text}</button>)}
+          </div>
+        </div>
+
+        {!shown.length && <div className="empty">
+          <Icon name="compare" />
+          <h3>{results.length ? 'No matching emails' : 'Nothing compared yet'}</h3>
+          <p>{results.length ? 'Change the search or the filter to see more results.' : 'Import the extraction stage output above, or run the sample to see how a discrepancy is reported.'}</p>
+          <span>Classify → Extract → Compare → Report</span>
+        </div>}
+
+        {shown.map(result => {
+          const decision = decisions[result.email_id]
+          const open = openEmail === result.email_id
+          return (
+            <article className="panel result-card" key={result.email_id}>
+              <div className="result-top">
+                <div>
+                  <p className="eyebrow">{result.email_id}</p>
+                  <h3>{result.si_document ?? 'SI missing'} <span className="against">against</span> {result.bl_document ?? 'BL missing'}</h3>
+                </div>
+                <StatusBadge status={effective(result)} decided={Boolean(decision)} />
+              </div>
+
+              {result.status === 'NEEDS_REVIEW' && <p className="review-reason">
+                <Icon name="info" />
+                <span><strong>{result.review_reason ? reviewReasons[result.review_reason] : 'This email could not be checked automatically.'}</strong> {result.review_detail}</span>
+              </p>}
+
+              {result.status === 'MISMATCH' && <p className="finding">
+                {result.defect_fields.length} of seven fields differ: {result.defect_fields.map(field => fieldTitles[field]).join(', ')}.
+              </p>}
+              {result.status === 'OK' && <p className="finding">No mismatch detected. All seven fields agree.</p>}
+
+              {result.fields.length > 0 && <>
+                <button className="secondary disclose" aria-expanded={open} onClick={() => setOpenEmail(open ? null : result.email_id)}>
+                  {open ? 'Hide the seven fields' : 'Show the seven fields side by side'}
+                </button>
+                {open && <div className="field-table-wrap">
+                  <table className="field-table">
+                    <caption>Each value is shown under the label its own document used.</caption>
+                    <thead><tr><th scope="col">Field</th><th scope="col">Shipping Instruction</th><th scope="col">Draft Bill of Lading</th><th scope="col">Outcome</th></tr></thead>
+                    <tbody>
+                      {result.fields.map(row => (
+                        <tr key={row.field} className={row.status}>
+                          <th scope="row">{fieldTitles[row.field]}</th>
+                          <td data-column="Shipping Instruction"><span className="doc-label">{row.si_label ?? 'no label found'}</span><span className="doc-value">{row.si_value || '—'}</span></td>
+                          <td data-column="Draft Bill of Lading"><span className="doc-label">{row.bl_label ?? 'no label found'}</span><span className="doc-value">{row.bl_value || '—'}</span></td>
+                          <td data-column="Outcome"><FieldBadge status={row.status} />{row.status !== 'match' && <span className="why">{row.reason}</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>}
+              </>}
+
+              {decision
+                ? <p className="decision"><Icon name="check" />Human decision: {decision.status === 'OK' ? 'no mismatch' : `mismatch in ${decision.fields.map(field => fieldTitles[field]).join(', ') || 'unspecified fields'}`}. {decision.note}</p>
+                : result.status === 'NEEDS_REVIEW' && <ReviewForm result={result} onResolve={value => setDecisions(previous => ({ ...previous, [result.email_id]: value }))} />}
+
+              {debug && <details className="raw-response"><summary>Inspect raw API result</summary><pre>{JSON.stringify(result, null, 2)}</pre></details>}
+            </article>
+          )
+        })}
+
+        {pageCount > 1 && <div className="pagination">
+          <button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+          <span>Page {currentPage + 1} of {pageCount}</span>
+          <button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+        </div>}
+
+        <p className="session-note"><Icon name="info" />Session-only results. Export the report before leaving or starting a new run. A result marked needs review has not been checked — only a person can close it.</p>
+      </section>
+    </div>
+  )
+}
+
+/** Lets a person close a case the rules refused to decide, and records why. */
+function ReviewForm({ result, onResolve }: { result: ComparisonResult; onResolve: (decision: Decision) => void }) {
+  const [status, setStatus] = useState<'OK' | 'MISMATCH'>('MISMATCH')
+  const [fields, setFields] = useState<CheckedField[]>(result.review_fields)
+  const [note, setNote] = useState('')
+  const unchecked = result.fields.length === 0
+
+  return (
+    <form className="review" onSubmit={event => { event.preventDefault(); if (note.trim()) onResolve({ status, fields: status === 'MISMATCH' ? fields : [], note: note.trim() }) }}>
+      <h4>Human review required</h4>
+      <p>{unchecked
+        ? 'No field was compared for this email. Open the source documents, then record what you found.'
+        : 'Some fields could not be decided automatically. Check them against the source documents, then record the outcome.'}</p>
+
+      <fieldset>
+        <legend>Outcome after checking the documents</legend>
+        <label className="choice"><input type="radio" name={`outcome-${result.email_id}`} value="MISMATCH" checked={status === 'MISMATCH'} onChange={() => setStatus('MISMATCH')} /> The draft BL has a discrepancy</label>
+        <label className="choice"><input type="radio" name={`outcome-${result.email_id}`} value="OK" checked={status === 'OK'} onChange={() => setStatus('OK')} /> The documents agree — no mismatch</label>
+      </fieldset>
+
+      {status === 'MISMATCH' && <fieldset>
+        <legend>Which fields are wrong</legend>
+        <div className="field-choices">
+          {checkedFields.map(field => (
+            <label className="choice" key={field}>
+              <input type="checkbox" checked={fields.includes(field)}
+                onChange={event => setFields(previous => event.target.checked ? [...previous, field] : previous.filter(item => item !== field))} />
+              {fieldTitles[field]}
+            </label>
+          ))}
+        </div>
+      </fieldset>}
+
+      <label>Decision note<input value={note} required maxLength={2000} onChange={event => setNote(event.target.value)} placeholder="What you checked and what you found" /></label>
+      <button disabled={!note.trim()}>Record decision</button>
+    </form>
+  )
+}

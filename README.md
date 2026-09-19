@@ -4,7 +4,7 @@ Shipping email classification with FastAPI and React. Integrates the latest `cla
 
 The UI imports JSON inbox files (one record or an array), runs DeepSeek-only classification, displays evidence and audit decisions, and supports human confirmation/correction and JSON report export. Failed or stopped emails can be retried. Results and human decisions are session-only; export before leaving. Requests are sequential and completed results remain visible if a later email fails. Stopping a batch cancels browser requests; an in-flight provider call may finish on the server.
 
-Scope: **Stage 1 classification**. Only confirmed `BL_COMPARISON` requests are marked for document comparison. SI/BL extraction, seven-field comparison, OCR, persistence, and authentication remain unimplemented. No mismatch-free result is claimed for an unprocessed document.
+Scope: **Stage 1 classification** and **Stage 3 comparison**. Only confirmed `BL_COMPARISON` requests are marked for document comparison. Comparison takes the extraction stage's output and checks the seven shipment fields, using the Shipping Instruction as the reference. SI/BL extraction, OCR, persistence, and authentication remain unimplemented. No mismatch-free result is claimed for a document that was not actually checked: a missing, unreadable, or wrong attachment is reported as `NEEDS_REVIEW`, never as `OK`.
 
 ## Prerequisites
 
@@ -56,8 +56,14 @@ PromptTroopersHack/
 │   ├── uv.lock                # Locked Python dependency resolution
 │   ├── app/
 │   │   ├── main.py            # FastAPI application and router registration
-│   │   └── api/health.py      # Health route and response model
-│   └── tests/test_health.py   # API smoke tests
+│   │   ├── api/health.py      # Health route and response model
+│   │   ├── api/comparison.py  # POST /api/v1/compare
+│   │   ├── schemas/comparison.py
+│   │   └── services/comparison/
+│   │       ├── labels.py      # Each document's own field labels, recovered from its text
+│   │       ├── normalize.py   # Per-field value normalisation
+│   │       └── engine.py      # Field rules, three-state outcome, review routing
+│   └── tests/                 # API smoke tests and comparison behaviour tests
 └── frontend/
     ├── AGENTS.md              # Frontend coding-agent guidance
     ├── .env.example           # Optional local proxy configuration
@@ -68,7 +74,9 @@ PromptTroopersHack/
     ├── tsconfig*.json
     └── src/
         ├── main.tsx          # React entry point
-        ├── App.tsx           # Email import, results, and human review
+        ├── App.tsx           # Workspace shell, pipeline map, debug stages
+        ├── features/ClassificationWorkspace.tsx
+        ├── features/ComparisonWorkspace.tsx
         ├── App.css
         ├── index.css
         └── lib/api.ts        # API requests, types, and response validation
@@ -181,6 +189,38 @@ Classification always uses DeepSeek-only. The request contains only `email`; `mo
 
 The export includes original email context, model evidence, human decision and note, effective category, and updated next step. It is a classification report, not a completed discrepancy submission. Do not expose the unauthenticated demo API publicly without authentication and rate limits.
 
+## Comparison API
+
+`POST /api/v1/compare` takes the extraction stage's output and returns one result per email. It needs no API key and makes no outbound calls: comparison is deterministic and runs entirely in process.
+
+```json
+{
+  "documents": [
+    {"file": "email_004_SI.txt", "status": "ok", "flag_reason": null,
+     "fields": {"shipper": "APRIL FAR EAST (M) SDN BHD"},
+     "raw_text": "SHIPPING INSTRUCTION\nShipper: APRIL FAR EAST (M) SDN BHD\n..."}
+  ]
+}
+```
+
+Documents pair by file name: `<email_id>_SI.<ext>` against `<email_id>_BL.<ext>`. A name that fits neither is returned under `summary.unpaired_files` rather than dropped. `raw_text` is optional but strongly preferred — it is what lets the report show the label each document used, and what separates a party name from the postal address printed beneath it.
+
+Each email comes back as one of three outcomes. `OK` and `MISMATCH` are answers; `NEEDS_REVIEW` is a refusal, and means no comparison happened:
+
+| `review_reason` | What it means |
+| --- | --- |
+| `missing_attachment` | The email did not carry both documents. |
+| `wrong_doc_type` | An attachment is a Commercial Invoice, Packing List, or similar — not an SI or BL. |
+| `unreadable` | A document could not be read at all, so nothing in it was checked. |
+| `missing_value` | A field the check needs is blank or a placeholder such as `____MT`, `N/A`, or `TBA`. |
+| `uncertain_value` | Two values are too close to call: neither clearly the same nor clearly different. |
+
+Per field the outcome is `match`, `mismatch`, or `review`, each with the label both documents used, both values, and a reason in plain language. A confirmed discrepancy outranks an undecided field, so an email with one real defect and one unreadable field is reported as `MISMATCH` with the remaining field still flagged for a person.
+
+Thresholds live in `app/services/comparison/engine.Policy`. Widening the band between them sends more cases to human review and resolves fewer automatically; narrowing it does the reverse.
+
+HTTP 422 means the request was malformed or no document could be paired.
+
 ## Offline batch evaluation
 
 The POC's resumable runner and metrics are available inside this project. Dataset and answer key are supplied explicitly, keeping ground truth separate from the classifier. From `backend/`:
@@ -204,8 +244,8 @@ Numeric model confidence has been removed from prompts, API responses, the UI, a
 
 ## Pipeline workspace and Debug mode
 
-The main page presents the full **Classify → Extract → Compare → Report** workflow. Classification is the only processing stage available. Counts reflect the current session, and comparison requests pause before extraction. The queue supports subject/ID search, human-review filtering, retries, and pagination (20 emails per page).
+The main page presents the full **Classify → Extract → Compare → Report** workflow. Classification and comparison are available; extraction and the final report are not. Counts reflect the current session. Because extraction is not implemented in this project, the comparison workspace takes an extraction output file directly. The queue supports subject/ID search, human-review filtering, retries, and pagination (20 emails per page).
 
-Use **Debug mode** in the sidebar to test stages independently. Its classification workspace uses the same API with separate input, results, review decisions, and export files; debug runs never alter the main pipeline queue. Raw API responses are available in each debug result. Extraction, comparison, and report test benches describe their expected inputs/outputs and have disabled run controls until their endpoints are implemented. Navigation preserves session state and supports browser back/forward; refreshing clears it.
+Use **Debug mode** in the sidebar to test stages independently. Its classification workspace uses the same API with separate input, results, review decisions, and export files; debug runs never alter the main pipeline queue. Raw API responses are available in each debug result. The comparison test bench runs against `POST /api/v1/compare` with its own input, results, and review decisions. The extraction and report benches describe their expected inputs and outputs and have disabled run controls until their endpoints are implemented. Navigation preserves session state and supports browser back/forward; refreshing clears it.
 
 The interface follows the locally installed `ui-ux-pro-max` skill: a responsive operations console with blue actions, a navy sidebar, explicit stage statuses, keyboard focus, and reduced-motion support. Project-specific design rules are recorded in [AGENTS.md](AGENTS.md#product-ui-design).
