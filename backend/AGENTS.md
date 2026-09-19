@@ -18,7 +18,7 @@ Scope: everything under `backend/`. Read the root `AGENTS.md` and README before 
 - Use typed Pydantic request and response models. Move shared models to `app/schemas/` and business logic to `app/services/` when features require them.
 - Use normal `def` handlers for blocking work; use `async def` only with nonblocking I/O.
 - Health currently reports process liveness, not database or external service readiness.
-- No database, authentication, background queue, or external integration has been selected yet. Do not assume any exist.
+- Classification uses a blocking DeepSeek client in app/services/classification; its calls run in normal def routes. No database, authentication, or background queue exists. Keep evaluation ground truth out of runtime classification.
 - Development browser requests pass through Vite's `/api` proxy. There is no CORS middleware; if deployment needs cross-origin requests, configure explicit allowed origins.
 
 ## Validation and handoff

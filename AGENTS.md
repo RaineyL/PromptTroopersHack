@@ -38,6 +38,17 @@ These instructions apply throughout this repository. Read the root README and th
 - Keep tests deterministic and isolated from live credentials and external services unless explicitly designated integration tests.
 - Run the relevant checks in the scoped guide. Do not claim checks passed if they were not run. For documentation-only changes, verify accuracy, links, and the diff; application tests are unnecessary unless behavior changes.
 
+## Product UI design
+
+Apply these rules to frontend work. The app is a shipping document operations console; use the existing semantic color tokens in `frontend/src/index.css` and layout patterns in `frontend/src/App.css` as the source of truth.
+
+- Keep **Pipeline** as the default workspace. Show the full flow: Classify → Extract → Compare → Report. **Debug mode** is a separate workspace for testing each stage independently; its inputs, results, and review decisions must not change the main pipeline session.
+- Mark stage availability explicitly. Classification is implemented; extraction, comparison, and discrepancy reporting are not. Planned stage controls remain disabled and describe their expected inputs and outputs. Never present fabricated processed counts, completed comparisons, or mismatch-free reports.
+- Use a navy sidebar, neutral canvas, white panels, blue primary actions, green ready states, and amber human-review cues. Pair status colors with text; color alone must not convey meaning. Use one consistent set of simple SVG icons, with accessible labels for icon-only controls.
+- Use a clear sans-serif hierarchy (Fira Sans when locally available, then Segoe UI or the system font). Reserve monospace for JSON and IDs. Keep spacing on a 4/8 px rhythm, readable line lengths, and comfortable control sizes; form text must be at least 16 px on mobile.
+- Keep navigation and forms keyboard-accessible with visible focus, persistent labels, clear loading/error/empty states, and controls that remain usable at 375 px without horizontal scrolling. The sidebar becomes top navigation on narrow screens. Respect `prefers-reduced-motion` and avoid decorative or layout-shifting animations.
+- Treat this as an operations tool: prioritize workflow status, the next action, source evidence, and human review. Avoid maps, sales calls to action, and live telemetry unless those features actually exist.
+
 ## Definition of done
 
 - The requested behavior works, including relevant error and boundary cases.
