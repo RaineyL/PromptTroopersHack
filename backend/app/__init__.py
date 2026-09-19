@@ -1,0 +1,1 @@
+"""PromptTroopersHack API application."""
