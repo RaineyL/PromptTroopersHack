@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { categories, classifyEmail, parseEmails, type Category, type ClassificationResult, type EmailRecord } from '../lib/api'
+import { categories, classifyEmail, parseEmails, runPipelineExtraction, type Category, type ClassificationResult, type EmailRecord, type ExtractionResult } from '../lib/api'
+import { DocumentPanel } from './ExtractionWorkspace'
+import { InboxSource } from './InboxSource'
 import { Icon } from '../components/Icon'
 
 const example = JSON.stringify({ email_id: 'demo_001', from: 'operations@example.com', subject: 'Please check draft BL', body: 'Please compare the attached draft BL with our shipping instructions and confirm the details.', attachments: ['demo_001_SI.txt', 'demo_001_BL.txt'] }, null, 2)
-type Row = { email: EmailRecord; result?: ClassificationResult; error?: string; decision?: { category: Category; note: string } }
+type Row = { email: EmailRecord; result?: ClassificationResult; error?: string; decision?: { category: Category; note: string }; extraction?: ExtractionResult; extractionError?: string }
 const label = (value: string) => value.replaceAll('_', ' ')
 
 export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) {
-  const [input, setInput] = useState(example)
-  const [inputSummary, setInputSummary] = useState('Sample loaded: demo_001. Replace it with your inbox records.')
+  const [input, setInput] = useState(debug ? example : '')
+  const [inputSummary, setInputSummary] = useState(debug ? 'Sample loaded: demo_001. Replace it with Docker email or JSON.' : 'Load an email and its attachments from Docker to begin.')
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -41,11 +43,37 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
         try {
           const result = await classifyEmail(email, abort.signal)
           if (mounted.current && !abort.signal.aborted) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { email, result } : row))
+          if (!debug && result.classification.category === 'BL_COMPARISON' && !result.classification.needs_human_review && !abort.signal.aborted) {
+            try {
+              const extraction = await runPipelineExtraction(email.email_id, abort.signal)
+              if (mounted.current && !abort.signal.aborted) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, extraction, extractionError: undefined } : row))
+            } catch (cause) {
+              if (mounted.current) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, extractionError: abort.signal.aborted ? 'Stopped or timed out. Retry extraction.' : cause instanceof Error ? cause.message : 'Could not extract the documents.' } : row))
+            }
+          }
         } catch (cause) {
           if (mounted.current) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, error: abort.signal.aborted ? 'Stopped or timed out. Retry to classify this email.' : cause instanceof Error ? cause.message : 'Could not reach the backend.' } : row))
         } finally { window.clearTimeout(timeout) }
       }
     } finally {
+      controller.current = null
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  async function extractForEmail(emailId: string) {
+    if (controller.current || debug) return
+    const abort = new AbortController()
+    controller.current = abort
+    setBusy(true)
+    const timeout = window.setTimeout(() => abort.abort(), 120000)
+    try {
+      const extraction = await runPipelineExtraction(emailId, abort.signal)
+      if (mounted.current && !abort.signal.aborted) setRows(previous => previous.map(row => row.email.email_id === emailId ? { ...row, extraction, extractionError: undefined } : row))
+    } catch (cause) {
+      if (mounted.current) setRows(previous => previous.map(row => row.email.email_id === emailId ? { ...row, extractionError: abort.signal.aborted ? 'Stopped or timed out. Retry extraction.' : cause instanceof Error ? cause.message : 'Could not extract the documents.' } : row))
+    } finally {
+      window.clearTimeout(timeout)
       controller.current = null
       if (mounted.current) setBusy(false)
     }
@@ -70,7 +98,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
   }
 
   function download() {
-    const report = { workspace: debug ? 'debug' : 'pipeline', stage: 'email_classification', document_comparison_implemented: false, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, next_step: row.decision ? (row.decision.category === 'BL_COMPARISON' ? 'document_comparison_pending' : 'classification_complete') : row.result?.next_step ?? 'unprocessed', decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
+    const report = { workspace: debug ? 'debug' : 'pipeline', stage: debug ? 'email_classification' : 'classify_and_extract', document_comparison_implemented: false, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, next_step: row.decision ? (row.decision.category === 'BL_COMPARISON' ? 'document_comparison_pending' : 'classification_complete') : row.result?.next_step ?? 'unprocessed', decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = debug ? 'debug-classification-report.json' : 'pipeline-classification-report.json'; document.body.append(anchor); anchor.click(); anchor.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -82,7 +110,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
   const currentPage = Math.min(page, pageCount - 1)
   const shown = filtered.slice(currentPage * 20, currentPage * 20 + 20)
   const classified = rows.filter(row => row.result).length
-  const pendingDocuments = rows.filter(row => (row.decision?.category ?? row.result?.classification.category) === 'BL_COMPARISON' && (row.decision || !row.result?.classification.needs_human_review)).length
+  const readyForComparison = rows.filter(row => row.extraction?.bl.status === 'extracted' && row.extraction?.si.status === 'extracted').length
   const inputId = debug ? 'debug-json' : 'pipeline-json'
   return (
     <div className="classification-workspace">
@@ -90,24 +118,25 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
         <div><span>Emails in this run</span><strong>{rows.length.toString().padStart(2, '0')}</strong><small>Imported for classification</small></div>
         <div><span>Classified</span><strong>{classified.toString().padStart(2, '0')}</strong><small>Intent identified</small></div>
         <div><span>Human review</span><strong className={reviewCount ? 'amber-text' : ''}>{reviewCount.toString().padStart(2, '0')}</strong><small>Decisions needing attention</small></div>
-        <div><span>Awaiting document check</span><strong>{pendingDocuments.toString().padStart(2, '0')}</strong><small>Extraction is not available yet</small></div>
+        <div><span>Awaiting comparison</span><strong>{readyForComparison.toString().padStart(2, '0')}</strong><small>Both documents extracted</small></div>
       </div>}
       <section className="panel intake" aria-labelledby={`${inputId}-heading`}>
-        <div className="section-heading"><div><p className="eyebrow">{debug ? 'Isolated stage test' : 'Start a workflow'}</p><h2 id={`${inputId}-heading`}>{debug ? 'Test email classification' : 'Bring your inbox into focus'}</h2></div><span className="badge blue">{debug ? 'POST /api/v1/classify' : 'JSON inbox records'}</span></div>
-        <p>{debug ? 'Send email JSON directly to the classifier. Inspect its category, evidence, audit, and review decision below.' : 'Import shipping emails to identify the request and route the next action. Comparison requests will pause before document extraction.'}</p>
-        <label className="upload-zone"><Icon name="upload"/><span><strong>Choose inbox files</strong><small>One or more JSON files · up to 520 emails · 10 MB total</small></span><input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} /></label>
+        <div className="section-heading"><div><p className="eyebrow">{debug ? 'Isolated stage test' : 'Start a workflow'}</p><h2 id={`${inputId}-heading`}>{debug ? 'Test email classification' : 'Bring your inbox into focus'}</h2></div><span className="badge blue">{debug ? 'POST /api/v1/classify' : 'Docker inbox'}</span></div>
+        <p>{debug ? 'Send email JSON directly to the classifier. Inspect its category, evidence, audit, and review decision below.' : 'Request shipping emails and attachments from Docker to identify the request and route the next action. Comparison requests continue to BL and SI extraction; the field comparison stage remains planned.'}</p>
+        <InboxSource onBusy={setImporting} debug={debug} disabled={busy || importing} onLoad={email => { setInput(JSON.stringify(email, null, 2)); setInputSummary(`${email.email_id} loaded from Docker.`); setError('') }} />
+        {debug && <label className="upload-zone"><Icon name="upload"/><span><strong>Choose inbox files</strong><small>One or more JSON files · up to 520 emails · 10 MB total</small></span><input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} /></label>}
         <p className="input-summary">{inputSummary}</p>
         <details className="json-editor" open={debug || undefined}>
-          <summary>{debug ? 'Request body' : 'Or paste email JSON / view imported records'}</summary>
-          <label htmlFor={inputId}>Email JSON</label><textarea id={inputId} value={input} disabled={busy || importing} onChange={event => { setInput(event.target.value); setInputSummary('Custom JSON input. Validated when you run classification.') }} spellCheck={false} aria-describedby={error ? `${inputId}-error` : undefined} />
+          <summary>{debug ? 'Request body' : 'View requested email JSON'}</summary>
+          <label htmlFor={inputId}>Email JSON</label><textarea id={inputId} value={input} readOnly={!debug} disabled={busy || importing} onChange={event => { setInput(event.target.value); setInputSummary('Custom JSON input. Validated when you run classification.') }} spellCheck={false} aria-describedby={error ? `${inputId}-error` : undefined} />
         </details>
         {error && <p className="error" id={`${inputId}-error`} role="alert" tabIndex={-1}>{error}</p>}
-        <div className="run-toolbar"><button disabled={busy || importing} onClick={start}><Icon name="play"/>{busy ? 'Classifying…' : debug ? 'Run classification test' : 'Run available stage'}</button>{busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop batch</button>}<span role="status">{importing ? 'Reading files…' : busy ? `Processing ${rows.filter(row => row.result || row.error).length} of ${rows.length} emails` : debug ? 'DeepSeek only · text and filename metadata' : 'Classification is ready. Later stages are coming next.'}</span></div>
+        <div className="run-toolbar"><button disabled={busy || importing || !input} onClick={start}><Icon name="play"/>{busy ? 'Processing…' : debug ? 'Run classification test' : 'Run pipeline'}</button>{busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop batch</button>}<span role="status">{importing ? 'Loading email data…' : busy ? `Processing ${rows.filter(row => row.result || row.error).length} of ${rows.length} emails` : debug ? 'DeepSeek only · text and filename metadata' : 'Classification and extraction are ready. Comparison remains planned.'}</span></div>
       </section>
       <section aria-labelledby={`${inputId}-results`}>
         <div className="results-header"><div><p className="eyebrow">{debug ? 'Test output' : 'Current session'}</p><h2 id={`${inputId}-results`}>{debug ? 'Classification results' : 'Workflow queue'} <span className="count">{rows.length}</span></h2></div><button className="secondary" disabled={!rows.length || busy} onClick={download}><Icon name="download"/>Export results</button></div>
         <div className="queue-tools"><label className="search">Search emails<input type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} placeholder="Search by subject or email ID" /></label><label className="filter"><input type="checkbox" checked={reviewOnly} onChange={event => { setReviewOnly(event.target.checked); setPage(0) }} /> Needs review ({reviewCount})</label></div>
-        {!shown.length && <div className="empty"><Icon name="inbox"/><h3>{rows.length ? 'No matching emails' : 'Your workflow starts with an email'}</h3><p>{rows.length ? 'Change the search or review filter to see more results.' : 'Import your inbox records above, or run the sample email to try classification.'}</p><span>Classify → Extract → Compare → Report</span></div>}
+        {!shown.length && <div className="empty"><Icon name="inbox"/><h3>{rows.length ? 'No matching emails' : 'Your workflow starts with an email'}</h3><p>{rows.length ? 'Change the search or review filter to see more results.' : 'Request an email and its attachments from Docker above to begin.'}</p><span>Classify → Extract → Compare → Report</span></div>}
         {shown.map(row => <article className="panel result-card" key={row.email.email_id}>
           <p className="eyebrow">{row.email.email_id}</p><h3>{row.email.subject || '(No subject)'}</h3>
           <details><summary>Email context and attachments</summary><p>From: {row.email.from || '(Not provided)'}</p><pre>{row.email.body}</pre><p>{row.email.attachments?.join(', ') || 'No attachments'}</p></details>
@@ -118,25 +147,28 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
             <p>{row.result.classification.rationale}</p>
             <ul>{row.result.classification.evidence.map((evidence, index) => <li key={index}>{evidence.source}: {evidence.signal}</li>)}</ul>
             {row.result.audit && <p>Second-pass audit: {label(row.result.audit.recommended_category)}. {row.result.audit.reason}</p>}
-            {row.decision ? <p className="decision">Human confirmed: {label(row.decision.category)}. {row.decision.note}</p> : row.result.classification.needs_human_review && <Review row={row} onConfirm={(category, note) => setRows(previous => previous.map(item => item.email.email_id === row.email.email_id ? { ...item, decision: { category, note } } : item))} />}
+            {row.decision ? <p className="decision">Human confirmed: {label(row.decision.category)}. {row.decision.note}</p> : row.result.classification.needs_human_review && <Review row={row} disabled={busy} onConfirm={(category, note) => { setRows(previous => previous.map(item => item.email.email_id === row.email.email_id ? { ...item, decision: { category, note } } : item)); if (!debug && category === 'BL_COMPARISON') void extractForEmail(row.email.email_id) }} />}
             {debug && <details className="raw-response"><summary>Inspect raw API response</summary><pre>{JSON.stringify(row.result, null, 2)}</pre></details>}
-            <p className="next-step">Next: {row.decision ? row.decision.category === 'BL_COMPARISON' ? 'Document comparison pending' : 'Classification complete' : label(row.result.next_step)}</p>
+            {!debug && row.extractionError && <p className="error" role="alert">Extraction: {row.extractionError}</p>}
+            {!debug && (row.decision?.category ?? row.result.classification.category) === 'BL_COMPARISON' && (row.decision || !row.result.classification.needs_human_review) && !row.extraction && <button className="secondary" disabled={busy} onClick={() => void extractForEmail(row.email.email_id)}>Retry extraction</button>}
+            {!debug && row.extraction && <div className="extraction-pair"><DocumentPanel kind="BL" result={row.extraction.bl}/><DocumentPanel kind="SI" result={row.extraction.si}/></div>}
+            <p className="next-step">Next: {row.extraction ? row.extraction.bl.status === 'extracted' && row.extraction.si.status === 'extracted' ? 'Document comparison pending' : 'Review extraction findings' : row.extractionError ? 'Retry extraction' : row.decision ? row.decision.category === 'BL_COMPARISON' ? 'Extract documents' : 'Classification complete' : label(row.result.next_step)}</p>
           </>}
         </article>)}
         {pageCount > 1 && <div className="pagination"><button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}
-        <p className="session-note"><Icon name="info"/>Session-only results. Export before leaving or starting a new run. No documents have been verified.</p>
+        <p className="session-note"><Icon name="info"/>{debug ? 'Session-only classification results. Export before leaving.' : 'Session-only results. Export before leaving or starting a new run. Documents may be extracted, but comparison has not run.'}</p>
       </section>
     </div>
   )
 }
 
-function Review({ row, onConfirm }: { row: Row; onConfirm: (category: Category, note: string) => void }) {
+function Review({ row, disabled, onConfirm }: { row: Row; disabled: boolean; onConfirm: (category: Category, note: string) => void }) {
   const [category, setCategory] = useState<Category>(row.result!.classification.category)
   const [note, setNote] = useState('')
   return <form className="review" onSubmit={event => { event.preventDefault(); if (note.trim()) onConfirm(category, note.trim()) }}>
     <h4>Human review required</h4><p>{row.result!.classification.ambiguity_reason}</p><p>{row.result!.classification.question_for_user}</p>
     <label>Confirmed category<select value={category} onChange={event => setCategory(event.target.value as Category)}>{categories.map(item => <option key={item} value={item}>{label(item)}</option>)}</select></label>
-    <label>Decision note<input value={note} required maxLength={2000} onChange={event => setNote(event.target.value)} placeholder="Explain the confirmed or corrected intent" /></label><button disabled={!note.trim()}>Confirm decision</button>
+    <label>Decision note<input value={note} required maxLength={2000} onChange={event => setNote(event.target.value)} placeholder="Explain the confirmed or corrected intent" /></label><button disabled={disabled || !note.trim()}>Confirm decision</button>
   </form>
 }
 

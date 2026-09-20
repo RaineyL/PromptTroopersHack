@@ -145,3 +145,26 @@ input[type=checkbox] { accent-color: var(--blue); width: 16px; height: 16px; }
 
 .input-summary { font-size: 11px !important; margin: 12px 0 0 !important; color: var(--muted); }
 .raw-response pre { background: #f8fafd; border: 1px solid var(--line); border-radius: 6px; padding: 16px; font-family: ui-monospace, monospace; font-size: 12px; }
+
+.inbox-source { display: grid; gap: 12px; margin-block: 20px; min-width: 0; }
+.inbox-source label { display: grid; gap: 8px; }
+.inbox-source select { width: 100%; min-width: 0; }
+.inbox-source .filter { display: flex; }
+.inbox-source a { overflow-wrap: anywhere; }
+
+.extraction-workspace { display: grid; gap: 24px; min-width: 0; }
+.extraction-email { display: grid; gap: 8px; margin-block: 16px; }
+.extraction-email select { width: 100%; min-width: 0; }
+.extraction-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.extraction-document { min-width: 0; }
+.extraction-document h2 { margin-bottom: 12px; }
+.attachment-path, .extracted-fields dd, .extraction-warnings { overflow-wrap: anywhere; }
+.extracted-fields { margin: 20px 0; }
+.extracted-fields > div { padding: 16px 0; border-top: 1px solid var(--line); }
+.extracted-fields dt { font-weight: 600; margin-bottom: 8px; }
+.extracted-fields dd { margin: 0 0 8px; white-space: pre-wrap; }
+.extracted-fields blockquote { margin: 12px 0; padding-left: 12px; border-left: 3px solid var(--line); }
+@media (max-width: 680px) { .extraction-pair { grid-template-columns: 1fr; } }
+
+.extraction-json { max-height: 640px; margin: 12px 0; padding: 16px; overflow: auto; background: #f8fafd; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.extraction-document details .extraction-json { max-height: 460px; }
