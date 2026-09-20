@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     DEEPSEEK_API_KEY="" \
     DEEPSEEK_BASE_URL="https://api.deepseek.com" \
-    DEEPSEEK_MODEL="deepseek-flash"
+    DEEPSEEK_MODEL="deepseek-flash" \
+    ENABLE_DEBUG="false"
 
 WORKDIR /app
 
