@@ -8,7 +8,11 @@ from fastapi import HTTPException
 
 from app.services.inbox import InboxClient
 
-DEFAULT_GROUND_TRUTH = Path(__file__).resolve().parents[5] / 'sdoc-hackathon-docker/data_v2/ground_truth.json'
+# In the full repository this resolves to the organizer-only scoring fixture.
+# A standalone deployment image contains only ``backend/``, so resolve from the
+# backend root instead of indexing past the filesystem root during import.
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_GROUND_TRUTH = BACKEND_ROOT.parent.parent / 'sdoc-hackathon-docker/data_v2/ground_truth.json'
 
 
 class ExtractionCatalog:
