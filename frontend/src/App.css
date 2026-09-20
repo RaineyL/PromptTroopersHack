@@ -168,3 +168,73 @@ input[type=checkbox] { accent-color: var(--blue); width: 16px; height: 16px; }
 
 .extraction-json { max-height: 640px; margin: 12px 0; padding: 16px; overflow: auto; background: #f8fafd; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .extraction-document details .extraction-json { max-height: 460px; }
+/* ---- Stage 3: SI versus draft BL comparison ---- */
+/* Status colours always ship with a word and a mark; colour alone carries nothing. */
+.badge.amber { color: var(--amber); background: var(--amber-tint); }
+.badge.red { color: var(--error); background: #fdeeee; }
+.badge { align-items: center; gap: 5px; }
+.badge .icon { width: 12px; height: 12px; stroke-width: 2.2; }
+.green-text { color: var(--green); }
+.red-text { color: var(--error); }
+
+.segmented { display: flex; flex-wrap: wrap; gap: 6px; }
+.segmented button { background: var(--surface); color: var(--muted); border: 1px solid #cbd3df; border-radius: 20px; padding: 7px 13px; font-size: 11px; font-weight: 500; }
+.segmented button:hover:not([aria-pressed='true']) { background: #edf2f8; color: var(--ink); }
+.segmented button[aria-pressed='true'] { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+.result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.result-top h3 { font-size: 14px; font-weight: 550; overflow-wrap: anywhere; }
+.against { color: var(--muted); font-weight: 400; }
+.finding { font-size: 13px; margin: 12px 0 0; }
+/* A reason can quote a file path from the extractor, which is one long
+   unbreakable token. Without min-width:0 the flex child refuses to shrink and
+   pushes the whole page sideways on a phone. */
+.review-reason { display: flex; gap: 10px; align-items: flex-start; background: var(--amber-tint); border: 1px solid #dfcda8; border-radius: 7px; padding: 13px 15px; margin: 14px 0 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.review-reason > span { min-width: 0; }
+.review-reason .icon { color: var(--amber); width: 15px; height: 15px; margin-top: 2px; }
+.review-reason strong { display: block; margin-bottom: 3px; }
+.disclose { margin-top: 16px; font-size: 12px; }
+
+.field-table-wrap { overflow-x: auto; margin-top: 16px; }
+.field-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12.5px; text-align: left; }
+.field-table caption { text-align: left; color: var(--muted); font-size: 11px; padding-bottom: 10px; }
+.field-table thead th { font-size: 10px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); font-weight: 550; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); }
+.field-table td, .field-table tbody th { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; font-weight: 400; }
+.field-table tbody th { font-weight: 550; white-space: nowrap; }
+/* A left rule repeats the outcome for anyone who cannot separate the badge colours. */
+.field-table tr.mismatch > *:first-child { box-shadow: inset 3px 0 0 var(--error); padding-left: 11px; }
+.field-table tr.review > *:first-child { box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px; }
+.doc-label { display: block; font-size: 10px; letter-spacing: .3px; color: var(--muted); margin-bottom: 3px; }
+.doc-value { display: block; overflow-wrap: anywhere; }
+.field-table td:nth-child(4) { white-space: normal; }
+.why { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+.review fieldset { border: 0; padding: 0; margin: 16px 0 0; }
+.review legend { font-size: 12px; font-weight: 550; padding: 0; margin-bottom: 8px; }
+/* Specificity has to beat the existing `.review label` and `.review input`
+   block rules, or the control stacks above its own text. */
+.review .choice { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; font-size: 12px; line-height: 1.4; }
+.review .choice input { display: inline-block; width: auto; min-width: 16px; min-height: 16px; margin: 0; flex: none; }
+.field-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 2px 14px; }
+.decision { display: flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 12.5px; }
+.decision .icon { width: 14px; height: 14px; }
+
+@media (max-width: 680px) {
+  .result-top { flex-direction: column; gap: 10px; }
+  .segmented { width: 100%; }
+  .segmented button { flex: 1 1 auto; min-height: 40px; }
+  /* A four-column table cannot be read on a phone, and sideways scrolling
+     hides the very comparison the table exists to show. Each field becomes a
+     block instead, with the column name carried down as its own label. */
+  .field-table-wrap { overflow-x: visible; }
+  .field-table, .field-table caption, .field-table tbody, .field-table tr, .field-table td, .field-table tbody th { display: block; width: auto; min-width: 0; }
+  .field-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .field-table tr { border-bottom: 1px solid var(--line); padding: 14px 0 4px; }
+  .field-table tr:last-child { border-bottom: 0; }
+  .field-table tbody th { font-size: 13px; padding: 0 0 10px; border: 0; white-space: normal; }
+  .field-table td { border: 0; padding: 0 0 10px; }
+  .field-table td::before { content: attr(data-column); display: block; font-size: 10px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .field-table tr.mismatch > *:first-child, .field-table tr.review > *:first-child { box-shadow: none; padding-left: 0; }
+  .field-table tr.mismatch { box-shadow: inset 3px 0 0 var(--error); padding-left: 11px; }
+  .field-table tr.review { box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px; }
+}

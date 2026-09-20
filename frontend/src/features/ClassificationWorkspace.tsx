@@ -8,7 +8,7 @@ const example = JSON.stringify({ email_id: 'demo_001', from: 'operations@example
 type Row = { email: EmailRecord; result?: ClassificationResult; error?: string; decision?: { category: Category; note: string }; extraction?: ExtractionResult; extractionError?: string }
 const label = (value: string) => value.replaceAll('_', ' ')
 
-export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) {
+export function ClassificationWorkspace({ debug = false, onExtractions }: { debug?: boolean; onExtractions?: (results: ExtractionResult[]) => void }) {
   const [input, setInput] = useState(debug ? example : '')
   const [inputSummary, setInputSummary] = useState(debug ? 'Sample loaded: demo_001. Replace it with Docker email or JSON.' : 'Load an email and its attachments from Docker to begin.')
   const [rows, setRows] = useState<Row[]>([])
@@ -28,6 +28,10 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
   useEffect(() => {
     if (error) document.getElementById(debug ? 'debug-json-error' : 'pipeline-json-error')?.focus()
   }, [error, debug])
+
+  useEffect(() => {
+    onExtractions?.(rows.flatMap(row => row.extraction ? [row.extraction] : []))
+  }, [rows, onExtractions])
 
   async function process(emails: EmailRecord[], retry = false) {
     if (controller.current) return
@@ -98,7 +102,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
   }
 
   function download() {
-    const report = { workspace: debug ? 'debug' : 'pipeline', stage: debug ? 'email_classification' : 'classify_and_extract', document_comparison_implemented: false, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, next_step: row.decision ? (row.decision.category === 'BL_COMPARISON' ? 'document_comparison_pending' : 'classification_complete') : row.result?.next_step ?? 'unprocessed', decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
+    const report = { workspace: debug ? 'debug' : 'pipeline', stage: debug ? 'email_classification' : 'classify_and_extract', document_comparison_implemented: true, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, next_step: row.decision ? (row.decision.category === 'BL_COMPARISON' ? 'document_comparison_pending' : 'classification_complete') : row.result?.next_step ?? 'unprocessed', decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = debug ? 'debug-classification-report.json' : 'pipeline-classification-report.json'; document.body.append(anchor); anchor.click(); anchor.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -122,7 +126,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
       </div>}
       <section className="panel intake" aria-labelledby={`${inputId}-heading`}>
         <div className="section-heading"><div><p className="eyebrow">{debug ? 'Isolated stage test' : 'Start a workflow'}</p><h2 id={`${inputId}-heading`}>{debug ? 'Test email classification' : 'Bring your inbox into focus'}</h2></div><span className="badge blue">{debug ? 'POST /api/v1/classify' : 'Docker inbox'}</span></div>
-        <p>{debug ? 'Send email JSON directly to the classifier. Inspect its category, evidence, audit, and review decision below.' : 'Request shipping emails and attachments from Docker to identify the request and route the next action. Comparison requests continue to BL and SI extraction; the field comparison stage remains planned.'}</p>
+        <p>{debug ? 'Send email JSON directly to the classifier. Inspect its category, evidence, audit, and review decision below.' : 'Request shipping emails and attachments from Docker to identify the request and route the next action. Comparison requests continue to BL and SI extraction; run comparison below once extraction finishes.'}</p>
         <InboxSource onBusy={setImporting} debug={debug} disabled={busy || importing} onLoad={email => { setInput(JSON.stringify(email, null, 2)); setInputSummary(`${email.email_id} loaded from Docker.`); setError('') }} />
         {debug && <label className="upload-zone"><Icon name="upload"/><span><strong>Choose inbox files</strong><small>One or more JSON files · up to 520 emails · 10 MB total</small></span><input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} /></label>}
         <p className="input-summary">{inputSummary}</p>
@@ -131,7 +135,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
           <label htmlFor={inputId}>Email JSON</label><textarea id={inputId} value={input} readOnly={!debug} disabled={busy || importing} onChange={event => { setInput(event.target.value); setInputSummary('Custom JSON input. Validated when you run classification.') }} spellCheck={false} aria-describedby={error ? `${inputId}-error` : undefined} />
         </details>
         {error && <p className="error" id={`${inputId}-error`} role="alert" tabIndex={-1}>{error}</p>}
-        <div className="run-toolbar"><button disabled={busy || importing || !input} onClick={start}><Icon name="play"/>{busy ? 'Processing…' : debug ? 'Run classification test' : 'Run pipeline'}</button>{busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop batch</button>}<span role="status">{importing ? 'Loading email data…' : busy ? `Processing ${rows.filter(row => row.result || row.error).length} of ${rows.length} emails` : debug ? 'DeepSeek only · text and filename metadata' : 'Classification and extraction are ready. Comparison remains planned.'}</span></div>
+        <div className="run-toolbar"><button disabled={busy || importing || !input} onClick={start}><Icon name="play"/>{busy ? 'Processing…' : debug ? 'Run classification test' : 'Run pipeline'}</button>{busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop batch</button>}<span role="status">{importing ? 'Loading email data…' : busy ? `Processing ${rows.filter(row => row.result || row.error).length} of ${rows.length} emails` : debug ? 'DeepSeek only · text and filename metadata' : 'Classification and extraction are ready. Compare extracted results below.'}</span></div>
       </section>
       <section aria-labelledby={`${inputId}-results`}>
         <div className="results-header"><div><p className="eyebrow">{debug ? 'Test output' : 'Current session'}</p><h2 id={`${inputId}-results`}>{debug ? 'Classification results' : 'Workflow queue'} <span className="count">{rows.length}</span></h2></div><button className="secondary" disabled={!rows.length || busy} onClick={download}><Icon name="download"/>Export results</button></div>
@@ -156,7 +160,7 @@ export function ClassificationWorkspace({ debug = false }: { debug?: boolean }) 
           </>}
         </article>)}
         {pageCount > 1 && <div className="pagination"><button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}
-        <p className="session-note"><Icon name="info"/>{debug ? 'Session-only classification results. Export before leaving.' : 'Session-only results. Export before leaving or starting a new run. Documents may be extracted, but comparison has not run.'}</p>
+        <p className="session-note"><Icon name="info"/>{debug ? 'Session-only classification results. Export before leaving.' : 'Session-only results. Export before leaving or starting a new run. Comparison results are shown and exported separately below.'}</p>
       </section>
     </div>
   )

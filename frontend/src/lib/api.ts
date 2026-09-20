@@ -190,3 +190,93 @@ export async function runPipelineExtraction(id: string, signal: AbortSignal): Pr
     ? data.detail : `Extraction request failed (${response.status}). Check Docker and the backend.`)
   return parseExtractionResult(data, id)
 }
+/* ------------------------------------------------------------------ *
+ * Stage 3 — SI versus draft BL comparison
+ * ------------------------------------------------------------------ */
+
+export const checkedFields = ['shipper', 'consignee', 'notify_party', 'port_of_loading', 'port_of_discharge', 'container_count', 'gross_weight_kg'] as const
+export type CheckedField = typeof checkedFields[number]
+export type FieldStatus = 'match' | 'mismatch' | 'review'
+export type CompareStatus = 'OK' | 'MISMATCH' | 'NEEDS_REVIEW'
+export type ReviewReason = 'missing_attachment' | 'wrong_doc_type' | 'unreadable' | 'missing_value' | 'uncertain_value'
+
+export const fieldTitles: Record<CheckedField, string> = {
+  shipper: 'Shipper', consignee: 'Consignee', notify_party: 'Notify party',
+  port_of_loading: 'Port of loading', port_of_discharge: 'Port of discharge',
+  container_count: 'Container count', gross_weight_kg: 'Gross weight (kg)',
+}
+
+export const reviewReasons: Record<ReviewReason, string> = {
+  missing_attachment: 'An expected document was not attached to the email.',
+  wrong_doc_type: 'An attachment is not the document it is named as.',
+  unreadable: 'A document could not be read, so nothing in it was checked.',
+  missing_value: 'A value the check needs is blank or a placeholder.',
+  uncertain_value: 'The two values are too close to call automatically.',
+}
+
+export interface FieldComparison {
+  field: CheckedField
+  status: FieldStatus
+  si_label: string | null
+  si_value: string
+  bl_label: string | null
+  bl_value: string
+  reason: string
+  similarity: number | null
+}
+
+export interface ComparisonResult {
+  email_id: string
+  status: CompareStatus
+  review_reason: ReviewReason | null
+  review_detail: string | null
+  has_defect: boolean
+  defect_fields: CheckedField[]
+  review_fields: CheckedField[]
+  si_document: string | null
+  bl_document: string | null
+  fields: FieldComparison[]
+}
+
+export interface CompareResponse {
+  summary: {
+    emails: number
+    ok: number
+    mismatch: number
+    needs_review: number
+    defect_fields: Record<string, number>
+    unpaired_files: string[]
+  }
+  results: ComparisonResult[]
+}
+
+/** Accept the exact extraction download, or a batch of extraction responses. */
+export function parseExtraction(value: unknown): ExtractionResult[] {
+  const container = value && typeof value === 'object' && 'extractions' in value ? value.extractions : value
+  const rows: unknown[] = Array.isArray(container) ? container : [container]
+  if (!rows.length || rows.length > 520) throw new Error('Import between 1 and 520 extraction results.')
+  const ids = new Set<string>()
+  return rows.map(row => {
+    if (!row || typeof row !== 'object' || !('email' in row)) throw new Error('Use extraction output containing email, bl, and si.')
+    const email = parseEmails(row.email)[0]
+    if (ids.has(email.email_id)) throw new Error(`Duplicate email: ${email.email_id}`)
+    ids.add(email.email_id)
+    return parseExtractionResult(row, email.email_id)
+  })
+}
+
+export async function compareDocuments(extractions: ExtractionResult[], signal: AbortSignal): Promise<CompareResponse> {
+  const response = await fetch('/api/v1/compare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extractions }), signal,
+  })
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => null)
+    const message = data && typeof data === 'object' && 'detail' in data && typeof data.detail === 'string'
+      ? data.detail : `Comparison failed (${response.status}). Check the extraction file and the backend connection.`
+    throw new Error(message)
+  }
+  const data: CompareResponse = await response.json()
+  if (!data.summary || !Array.isArray(data.results)) throw new Error('Unexpected comparison response. Run the comparison again.')
+  return data
+}
