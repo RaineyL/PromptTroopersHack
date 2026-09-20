@@ -5,6 +5,7 @@ from app.schemas.extraction import ExtractionCatalog as CatalogResponse, Extract
 from app.services.extraction.catalog import ExtractionCatalog
 from app.services.extraction.pipeline import extract_email
 from app.services.inbox import InboxClient
+from app.api.inbox import inbox_source
 
 router = APIRouter(prefix='/debug/extraction', tags=['extraction-debug'])
 
@@ -29,7 +30,7 @@ pipeline_router = APIRouter(tags=['extraction'])
 
 
 @pipeline_router.post('/extract', response_model=ExtractionResponse)
-def extract_pipeline(request: ExtractionRequest, inbox: InboxClient = Depends(InboxClient)):
+def extract_pipeline(request: ExtractionRequest, inbox: InboxClient = Depends(inbox_source)):
     # The pipeline UI invokes this after a confirmed BL_COMPARISON result.
     # Category ground truth is reserved for the independent Debug picker.
     email = inbox.emails(request.email_id)[0]

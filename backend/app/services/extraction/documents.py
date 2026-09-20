@@ -18,7 +18,7 @@ def read_document(path: str, content: bytes) -> str:
         raise DocumentReadError('Unsupported document format. Use TXT, PDF, DOCX, or XLSX.')
     text = READERS[suffix](content).replace('\r\n', '\n').replace('\r', '\n').strip()
     if not text:
-        raise DocumentReadError('No readable text found. Scanned documents require OCR, which is not implemented.')
+        raise DocumentReadError('No readable text found in document.')
     if len(text) > MAX_TEXT:
         raise DocumentReadError('Document text exceeds 100,000 characters.')
     return text

@@ -2,15 +2,16 @@
 
 Shipping email classification, document extraction, and SI/BL comparison with FastAPI and React. Integrates the latest `classify_POC` DeepSeek-only review gate, prompts, and second-pass DeepSeek audit as a self-contained backend package. No sibling POC folder is required at runtime.
 
-The Pipeline UI requests emails and attachments from Docker. Debug also imports JSON inbox files (one record or an array). The UI runs DeepSeek-only classification, displays evidence and audit decisions, and supports human confirmation/correction and JSON report export. Failed or stopped emails can be retried. Results and human decisions are session-only; export before leaving. Requests are sequential and completed results remain visible if a later email fails. Stopping a batch cancels browser requests; an in-flight provider call may finish on the server.
+The Pipeline dashboard accepts a ZIP containing `inbox/*.json` and `attachments/` (optionally inside one enclosing folder). Upload it, run the pipeline, filter by category, and click an email to inspect its message, TXT attachments, and other attachment paths. There is no fixed email-count limit; the dashboard pages large result tables. The backend retains up to four temporary ZIP sessions in memory while active, with a four-hour idle expiry. Each archive is limited to 50 MB compressed and 100 MB of uncompressed source data. Debug still uses Docker and optional JSON inputs independently. The UI runs DeepSeek-only classification and supports human review and JSON report export. Failed emails can be retried. Results and decisions are session-only; export before leaving. Completed extraction snapshots are saved in this browser for Debug reuse. Requests are sequential and completed results remain visible if a later email fails. Stopping a batch cancels browser requests; an in-flight provider call may finish on the server.
 
-Scope: **Pipeline classification, extraction, and comparison, plus independent Debug stage tests**. Only confirmed `BL_COMPARISON` requests are marked for document comparison. Confirmed comparison emails proceed to SI/BL extraction in Pipeline; extraction can also run independently in Debug. The final Report stage, OCR, persistence, and authentication remain unimplemented. No mismatch-free result is claimed for an unprocessed document.
+Scope: **Pipeline classification, extraction, comparison, and JSON reporting, plus independent Debug stage tests**. Only confirmed `BL_COMPARISON` requests proceed to SI/BL extraction and comparison in Pipeline. Server-side persistence and authentication remain unimplemented. Do not expose the ZIP upload endpoint publicly without authentication and rate limiting. No mismatch-free result is claimed for an unprocessed document.
 
 ## Prerequisites
 
 - Python 3.12 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - Node.js 22.12+ within the 22.x line, or Node.js 24+, and npm (included with Node).
 - Git.
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) with English language data and [Poppler](https://poppler.freedesktop.org/) on the backend host for scanned PDF extraction. On macOS, install both with `brew install tesseract poppler`; on Debian/Ubuntu, use `sudo apt-get install tesseract-ocr poppler-utils`.
 
 ## Quick start
 
@@ -122,7 +123,7 @@ npm run build
 npm run preview
 ```
 
-Lint uses Oxlint. Typecheck uses TypeScript strict mode; build also runs TypeScript before bundling. The production build is written to `frontend/dist/`. Preview serves that build at http://localhost:4173 and requires the backend for API calls. Preview is for local verification, not production hosting. No frontend automated test runner is configured yet.
+Lint uses Oxlint. Typecheck uses TypeScript strict mode; build also runs TypeScript before bundling. The production build is written to `frontend/dist/`. Preview serves that build at http://localhost:4173 and requires the backend for API calls. Preview is for local verification, not production hosting. Browser storage tests use Node’s built-in test runner: `node --experimental-strip-types --test tests/extractionHistory.test.mjs tests/reportHistory.test.mjs tests/report.test.mjs` from `frontend/`.
 
 For an integration smoke check, start both services and run:
 
@@ -185,19 +186,25 @@ uv run python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 }
 ```
 
-Classification always uses DeepSeek-only. The request contains only `email`; `mode` is absent from both request and response. Obsolete `mode` fields are rejected with HTTP 422. Returns `classification`, optional `audit`, `audit_risk_flags`, and `next_step`. Next steps are `human_review`, `document_comparison_pending`, or `classification_complete`. Ambiguous or insufficient evidence and audit disagreement require review; the initial prediction is preserved with the competing category. A failed audit fails the request rather than returning an unaudited decision. HTTP 422 means invalid input, 503 missing server configuration, and 502 provider failure or invalid output.
+Classification always uses DeepSeek-only. The request contains only `email`; `mode` is absent from both request and response. Obsolete `mode` fields are rejected with HTTP 422. Returns `classification`, optional `audit`, and `audit_risk_flags`. The frontend routes confirmed `BL_COMPARISON` cases to extraction using the category and review flag; the response and classification export have no redundant `next_step` field. Ambiguous or insufficient evidence and audit disagreement require review; the initial prediction is preserved with the competing category. A failed audit fails the request rather than returning an unaudited decision. HTTP 422 means invalid input, 503 missing server configuration, and 502 provider failure or invalid output.
 
 The export includes original email context, model evidence, human decision and note, effective category, and updated next step. Pipeline exports also include local BL/SI extraction results when available. It is not a completed discrepancy submission. Do not expose the unauthenticated demo API publicly without authentication and rate limits.
 
 ## Comparison API
 
-`POST /api/v1/compare` accepts the **exact extraction response** (`email`, `bl`, `si`), including each field's `{value, evidence}` object. Send the JSON returned by `/api/v1/extract` or downloaded from Extraction Debug unchanged. For a batch, wrap these responses in `{"extractions": [...]}` (1–520 unique email IDs). The older `{"documents": [...]}` format remains supported by the API for compatibility, but the UI uses the current extraction contract.
+`POST /api/v1/compare` accepts the **exact extraction response** (`email`, `bl`, `si`), including each field's `{value, evidence}` object. Send the JSON returned by `/api/v1/extract` or downloaded from Extraction Debug unchanged. For a batch, wrap these responses in `{"extractions": [...]}` (unique email IDs). The older `{"documents": [...]}` format remains supported by the API for compatibility, but the UI uses the current extraction contract.
 
 Comparison uses the extracted values; `source_text` never overrides them. Gross weight is already in kilograms and is not converted again. Email IDs and explicit BL/SI sides define pairs, so attachment filenames need no special suffix. Missing, multiple, erroneous, or unresolved extraction results produce `NEEDS_REVIEW`, preserving extraction warnings rather than reporting a clean comparison.
 
 Responses contain `summary` and per-email `results`. Each result is `OK`, `MISMATCH`, or `NEEDS_REVIEW`, with seven field decisions (`match`, `mismatch`, or `review`) when both documents can be compared. A confirmed mismatch can coexist with fields requiring review. Comparison uses deterministic local rules and requires no model key or external calls. Thresholds are defined in `app/services/comparison/engine.py`.
 
-In Pipeline, completed extraction results feed the comparison workspace below automatically; choose **Run comparison**. Changing the pipeline extraction input clears prior comparison results and human decisions. In **Debug → Comparison**, paste or import an extraction download, an array of downloads, or a batch under `extractions`. Debug state is independent of Pipeline. Results show BL on the left and SI on the right, and support human review and JSON export. The final Report stage is still planned; comparison exports are session results.
+In Pipeline, **Run pipeline** classifies every uploaded email, extracts confirmed comparison requests, and compares each extracted pair. Open a row to inspect its findings and resolve any required review. In **Debug → Comparison**, choose a result under **Saved extraction results**, click **Use saved extraction**, then **Run comparison test**. You can also paste or import an extraction download, an array of downloads, or a batch under `extractions`. Debug state is independent of Pipeline.
+
+## Report JSON
+
+The Pipeline dashboard's **Export JSON report** downloads `submission.json` with the same per-email keys as `../sdoc-hackathon-bundle/sample_submission.json`: `category`, `status`, `review_reason`, `defect_fields`, and `has_defect`. Non-comparison categories receive `OK` with no defect fields when confirmed. An unconfirmed model category remains provisional and exports as `NEEDS_REVIEW` with `uncertain_value`; it is never reported as a clean result. The dashboard labels every unresolved case **Human Decision Required**, including comparisons blocked before field checks. Use that filter to inspect them. A person may optionally record `OK` or `MISMATCH` with a decision note (and defective fields for a mismatch), edit the decision, or return it to the unresolved state. Until then, the JSON keeps the required `NEEDS_REVIEW` status without claiming a confirmed defect. Export remains disabled when classification has no category or a confirmed BL comparison has not run. The report does not read ground truth or send document contents to another service.
+
+In **Debug → Report**, paste the JSON exported from Classification and Comparison, then choose **Build report test**. Both exports are saved together in the browser as Run #1, Run #2, and so on. Select a saved run to restore both inputs, inspect them, then build again. The latest 20 runs are retained; if browser storage is unavailable or full, the run remains available for this session with a visible warning. Debug inputs and output stay separate from the Pipeline session. The report is assembled in the browser and downloaded locally; there is no report API or server-side storage.
 
 ## Offline batch evaluation
 
@@ -222,9 +229,9 @@ Numeric model confidence has been removed from prompts, API responses, the UI, a
 
 ## Pipeline workspace and Debug mode
 
-The main page presents the full **Classify → Extract → Compare → Report** workflow. Classification, extraction, and comparison are implemented. Confirmed `BL_COMPARISON` requests automatically retrieve and extract their BL and SI documents; review decisions can also trigger extraction. Counts reflect the current session, and extracted requests are available to the comparison workspace below; choose **Run comparison**. The queue supports subject/ID search, human-review filtering, retries, and pagination (20 emails per page).
+The main page presents the full **Classify → Extract → Compare → Report** workflow in one dashboard. Upload a ZIP, run the pipeline, then search or filter the email table by category. Confirmed `BL_COMPARISON` requests automatically extract and compare BL/SI documents. After confirming a reviewed comparison category, use **Continue extraction and comparison** on that email. Counts reflect the current session, and incomplete rows block export.
 
-Use **Debug mode** in the sidebar to test stages independently. Its classification workspace uses the same API with separate input, results, review decisions, and export files; debug runs never alter the main pipeline queue. Raw API responses are available in each debug result. Extraction Debug runs independently as described below. Comparison Debug accepts extraction JSON independently; the Report test bench remains disabled. Navigation preserves session state and supports browser back/forward; refreshing clears it.
+Use **Debug mode** in the sidebar to test stages independently. Its classification workspace uses the same API with separate input, results, review decisions, and export files; debug runs never alter the main pipeline queue. Raw API responses are available in each debug result. Extraction Debug runs independently as described below. Comparison Debug accepts extraction JSON independently; Report Debug accepts the Classification and Comparison exports. Navigation preserves session state and supports browser back/forward. Refreshing clears active workspace results and decisions, but saved extraction snapshots remain available.
 
 The interface follows the locally installed `ui-ux-pro-max` skill: a responsive operations console with blue actions, a navy sidebar, explicit stage statuses, keyboard focus, and reduced-motion support. Project-specific design rules are recorded in [AGENTS.md](AGENTS.md#product-ui-design).
 
@@ -235,16 +242,14 @@ The backend reads its public HTTP API at `http://127.0.0.1:8080`; override
 `INBOX_BASE_URL` in `backend/.env` which is loaded automatically at backend startup.
 If the backend also runs in a container, use an origin reachable from that container.
 
-In Pipeline, choose **Request emails from Docker**, select an email, then **Load email
-and attachments**. Loading retrieves the current email and every listed attachment
-before making that email available for classification. Retrieved attachments can be
-downloaded and plain-text attachments inspected. Run classification after loading.
-Debug offers the same picker with an optional attachment checkbox, alongside manual
-JSON and file inputs. Each workspace retains its own session.
+Pipeline uses the uploaded ZIP instead of Docker. Debug offers the Docker picker
+with an optional attachment checkbox, alongside manual JSON and file inputs.
+Each workspace retains its own session.
 
-The backend exposes `GET /api/v1/inbox/emails`, `GET /api/v1/inbox/emails/{email_id}`,
+The backend exposes `POST /api/v1/inbox/upload` (raw `application/zip`, returning an
+opaque session ID and email list), `GET /api/v1/inbox/emails`, `GET /api/v1/inbox/emails/{email_id}`,
 and `GET /api/v1/inbox/emails/{email_id}/attachments/{path}`. Attachment requests
-verify membership in the selected email. Requests have 20-second upstream timeouts
+verify membership in the selected email. An `X-Inbox-Session` header selects the uploaded ZIP for inbox reads and `POST /api/v1/extract`; without it, those endpoints use Docker. Requests have 20-second upstream timeouts
 and a 10 MB response limit; the browser limits total attachments per email to 20 MB.
 Empty inboxes, missing resources, and connection failures are shown explicitly.
 Attachment bytes remain in the browser session and are not included in classification
@@ -275,11 +280,12 @@ necessary for classification only.
 The format readers follow the relevant `ExtractFrom/` implementations: TXT tries
 UTF-8 and Windows encodings; DOCX includes paragraphs, tables, headers, and
 footers; XLSX interprets rows as label/value pairs without evaluating formulas;
-PDF reads page text layers. The shared parser normalizes label synonyms, rejects
+PDF reads page text layers and runs local OCR on pages without usable text. The shared parser normalizes label synonyms, rejects
 placeholder values, converts metric tonnes to kilograms, and marks conflicting or
 missing fields for review. A bare number under a gross-weight label is treated as
-kilograms with an explicit review warning. Unknown labels require review. Scanned
-PDFs require OCR, which is not implemented.
+kilograms with an explicit review warning. Unknown labels require review. OCR results
+can contain recognition errors; check the source text and extracted evidence before
+accepting a comparison.
 
 Limits: 10 MB per attachment, 100,000 text characters, 30 PDF pages, 25 MB
 expanded Office archive content, 10,000 spreadsheet rows and 100 columns. Only
@@ -287,7 +293,7 @@ one filename-identified BL and one SI can be extracted per run; missing or
 multiple candidates require review. A document whose content identifies another
 type is also flagged. A failure on one side preserves the other side's result.
 Stopping cancels the browser request; work already running on the server may
-finish. Debug results are session-only and do not modify Pipeline or Classification Debug. Pipeline extraction results are also session-only and appear under the corresponding classified email.
+finish. Debug does not modify Pipeline or Classification Debug. Completed Pipeline and Extraction Debug responses are automatically saved in browser local storage, preserving fields, evidence, source text, warnings, and errors. Comparison Debug can load a copy without changing the original workspace. History retains the latest result per email and source workspace, up to 20 entries (oldest entries are replaced). Saved results survive refreshes on the same browser and site origin; they are not shared between browsers or ports. If storage is full or unavailable, a visible warning explains that new results are session-only. JSON downloads remain available as a backup.
 
 - `POST /api/v1/extract` with `{"email_id":"email_001"}`: extract one Docker email for Pipeline after classification confirms `BL_COMPARISON`; no ground-truth lookup.
 - `GET /api/v1/debug/extraction/emails`: eligible IDs only.

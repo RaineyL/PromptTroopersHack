@@ -39,7 +39,7 @@ class CompareRequest(BaseModel):
 
 class ExtractionCompareRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    extractions: list[ExtractionResponse] = Field(min_length=1, max_length=520)
+    extractions: list[ExtractionResponse] = Field(min_length=1)
 
     @model_validator(mode='after')
     def unique_emails(self):

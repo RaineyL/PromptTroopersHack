@@ -4,10 +4,12 @@ import {
   type CheckedField, type ComparisonResult, type CompareResponse, type CompareStatus,
   type ExtractionResult, type FieldStatus,
 } from '../lib/api'
+import type { SavedExtraction } from '../lib/extractionHistory'
+import type { ReportComparison, ReportDecision } from '../lib/report'
 import { Icon } from '../components/Icon'
 
 /** A reviewer's resolution of a case the rules refused to decide. */
-type Decision = { status: 'OK' | 'MISMATCH'; fields: CheckedField[]; note: string }
+type Decision = ReportDecision
 type Filter = 'all' | 'MISMATCH' | 'NEEDS_REVIEW' | 'OK'
 
 const PAGE_SIZE = 20
@@ -40,7 +42,9 @@ function FieldBadge({ status }: { status: FieldStatus }) {
   return <span className={`badge ${tone}`}><Icon name={icon} />{text}</span>
 }
 
-export function ComparisonWorkspace({ debug = false, extractions = [] }: { debug?: boolean; extractions?: ExtractionResult[] }) {
+export function ComparisonWorkspace({ debug = false, extractions = [], savedExtractions = [], storageWarning = '', onReportComparison }: { debug?: boolean; extractions?: ExtractionResult[]; savedExtractions?: SavedExtraction[]; storageWarning?: string; onReportComparison?: (snapshot: ReportComparison | null) => void }) {
+  const [savedId, setSavedId] = useState('')
+  const selectedSaved = savedExtractions.find(entry => entry.id === savedId) ?? savedExtractions[0]
   const [input, setInput] = useState(() => JSON.stringify(example, null, 2))
   const [inputSummary, setInputSummary] = useState('Sample loaded: one SI and one draft BL with a changed container count.')
   const [response, setResponse] = useState<CompareResponse | null>(null)
@@ -61,6 +65,7 @@ export function ComparisonWorkspace({ debug = false, extractions = [] }: { debug
     return () => { mounted.current = false; controller.current?.abort() }
   }, [])
   useEffect(() => { if (error) document.getElementById(`${prefix}-error`)?.focus() }, [error, prefix])
+  useEffect(() => { onReportComparison?.(response ? { response, decisions } : null) }, [response, decisions, onReportComparison])
 
   async function run(documents: ExtractionResult[]) {
     if (controller.current) return
@@ -162,6 +167,24 @@ export function ComparisonWorkspace({ debug = false, extractions = [] }: { debug
         <p>{debug ? 'Send extracted documents straight to the comparison rules and inspect every field decision.' : 'Compare the extraction results from the pipeline above. The Shipping Instruction is the reference for every check.'}</p>
 
         {debug ? <>
+        <section aria-label="Saved extraction results">
+          <h3>Saved extraction results</h3>
+          <p>Reuse a previous Pipeline or Extraction Debug result. The latest result per email and workspace is kept, up to 20 results in this browser.</p>
+          {storageWarning && <p className="error" role="status">{storageWarning}</p>}
+          {savedExtractions.length ? <>
+            <label className="extraction-email">Saved extraction<select value={selectedSaved?.id ?? ''} disabled={busy || importing} onChange={event => setSavedId(event.target.value)}>
+              {savedExtractions.map(entry => <option key={entry.id} value={entry.id}>{entry.result.email.email_id} · {entry.source} · {new Date(entry.savedAt).toLocaleString()}</option>)}
+            </select></label>
+            {selectedSaved && <p>BL: {selectedSaved.result.bl.status.replaceAll('_', ' ')} · SI: {selectedSaved.result.si.status.replaceAll('_', ' ')}</p>}
+            <button className="secondary" disabled={busy || importing || !selectedSaved} onClick={() => {
+              if (!selectedSaved) return
+              setInput(JSON.stringify(selectedSaved.result, null, 2))
+              setInputSummary(`Loaded saved extraction: ${selectedSaved.result.email.email_id} · ${selectedSaved.source}. Run comparison below.`)
+              setResponse(null); setDecisions({}); setError(''); setPage(0)
+            }}>Use saved extraction</button>
+          </> : <p>No saved extractions yet. Run extraction in Pipeline or Debug → Extraction, then return here.</p>}
+        </section>
+
         <label className="upload-zone">
           <Icon name="upload" />
           <span><strong>Choose extraction output</strong><small>Extraction JSON with email, bl, and si; one result or an array · up to 40 MB</small></span>
@@ -207,7 +230,7 @@ export function ComparisonWorkspace({ debug = false, extractions = [] }: { debug
         {!shown.length && <div className="empty">
           <Icon name="compare" />
           <h3>{results.length ? 'No matching emails' : 'Nothing compared yet'}</h3>
-          <p>{results.length ? 'Change the search or the filter to see more results.' : debug ? 'Import extraction JSON above, or run the sample.' : 'Run extraction in the pipeline above, then choose Run comparison.'}</p>
+          <p>{results.length ? 'Change the search or the filter to see more results.' : debug ? 'Choose a saved extraction, import extraction JSON, or run the sample.' : 'Run extraction in the pipeline above, then choose Run comparison.'}</p>
           <span>Classify → Extract → Compare → Report</span>
         </div>}
 
@@ -311,7 +334,7 @@ function ReviewForm({ result, onResolve }: { result: ComparisonResult; onResolve
       </fieldset>}
 
       <label>Decision note<input value={note} required maxLength={2000} onChange={event => setNote(event.target.value)} placeholder="What you checked and what you found" /></label>
-      <button disabled={!note.trim()}>Record decision</button>
+      <button disabled={!note.trim() || (status === 'MISMATCH' && !fields.length)}>Record decision</button>
     </form>
   )
 }

@@ -19,6 +19,7 @@ from app.services.extraction.catalog import ExtractionCatalog
 from app.services.extraction.documents import DocumentReadError, read_document
 from app.services.extraction.fields import document_kind, extract_fields
 from app.services.extraction.pipeline import extract_email
+from app.services.extraction.pdf import ocr_page
 from app.services.inbox import InboxClient
 
 BL = b'''BILL OF LADING (DRAFT)\nSHIPPER: Example Exporter\nCONSIGNEE: Example Receiver\nNotify: Example Agent\nPort of Loading (POL): PORT KLANG\nPOD: CALLAO\nContainer Count: 2 x 40'HC\nGross Wt (kgs): 21,577 KG\n'''
@@ -150,3 +151,28 @@ class ExtractionTests(unittest.TestCase):
         for path, content in [('image.png', b'123'), ('BL.pdf', b'corrupt'), ('SI.txt', b''), ('SI.docx', b'invalid')]:
             with self.subTest(path=path), self.assertRaises(DocumentReadError):
                 read_document(path, content)
+
+    def test_scanned_pdf_uses_ocr_and_text_pdf_skips_it(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=300, height=300)
+        data = BytesIO(); writer.write(data)
+        scanned = data.getvalue()
+        with patch('app.services.extraction.pdf.ocr_page', return_value=BL.decode()) as ocr:
+            self.assertIn('SHIPPER: Example Exporter', read_document('BL.pdf', scanned))
+            ocr.assert_called_once_with(scanned, 1)
+
+        writer = PdfWriter(); page = writer.add_blank_page(width=300, height=300)
+        font = DictionaryObject({NameObject('/Type'): NameObject('/Font'), NameObject('/Subtype'): NameObject('/Type1'), NameObject('/BaseFont'): NameObject('/Helvetica')})
+        page[NameObject('/Resources')] = DictionaryObject({NameObject('/Font'): DictionaryObject({NameObject('/F1'): font})})
+        stream = DecodedStreamObject()
+        stream.set_data(b'BT /F1 12 Tf 10 100 Td (Shipper: Example Exporter) Tj ET')
+        page[NameObject('/Contents')] = stream
+        data = BytesIO(); writer.write(data)
+        with patch('app.services.extraction.pdf.ocr_page') as ocr:
+            self.assertIn('Shipper: Example Exporter', read_document('BL.pdf', data.getvalue()))
+            ocr.assert_not_called()
+
+    def test_missing_ocr_binary_has_actionable_error(self):
+        with patch('app.services.extraction.pdf.subprocess.run', side_effect=FileNotFoundError(2, 'missing', 'pdftoppm')):
+            with self.assertRaisesRegex(DocumentReadError, 'Install Poppler and Tesseract'):
+                ocr_page(b'pdf', 1)

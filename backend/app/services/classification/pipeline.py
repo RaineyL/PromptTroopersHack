@@ -45,8 +45,6 @@ def classify_email(request: ClassifyRequest, client: ModelClient | None = None) 
             result.update(needs_human_review=True, ambiguity_reason=audit['reason'],
                           question_for_user=audit['question_for_user'] or
                           f"Please confirm the category: {result['category']} (audit: {audit['recommended_category']}).")
-    next_step = ('human_review' if result['needs_human_review'] else
-                 'document_comparison_pending' if result['category'] == 'BL_COMPARISON' else 'classification_complete')
     return ClassifyResponse(email_id=email['email_id'], classification=result,
                             audit=audit,
-                            audit_risk_flags=sorted(set(risks)), next_step=next_step)
+                            audit_risk_flags=sorted(set(risks)))

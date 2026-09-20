@@ -34,7 +34,8 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('mode', response.json())
         self.assertNotIn('confidence', response.json()['classification'])
-        self.assertEqual(response.json()['next_step'], 'document_comparison_pending')
+        self.assertEqual(response.json()['classification']['category'], 'BL_COMPARISON')
+        self.assertNotIn('next_step', response.json())
         self.assertNotIn('rule_result', response.json())
         self.assertNotIn('rule_engine_advisory', self.model.classify.call_args.args[1])
         self.model.audit.assert_not_called()
@@ -47,6 +48,7 @@ class ClassificationTests(unittest.TestCase):
         schemas = self.api.get('/openapi.json').json()['components']['schemas']
         self.assertEqual(set(schemas['ClassifyRequest']['properties']), {'email'})
         self.assertNotIn('mode', schemas['ClassifyResponse']['properties'])
+        self.assertNotIn('next_step', schemas['ClassifyResponse']['properties'])
         self.assertNotIn('confidence', schemas['Classification']['properties'])
 
     def test_legacy_provider_confidence_is_not_exposed(self):
@@ -58,12 +60,13 @@ class ClassificationTests(unittest.TestCase):
         self.model.classify.return_value = {**prediction(), 'category': 'GENERAL'}
         result = classify_email(ClassifyRequest(email=EMAIL), self.model)
         self.assertNotIn('rule_engine_advisory', self.model.classify.call_args.args[1])
-        self.assertEqual(result.next_step, 'classification_complete')
+        self.assertEqual(result.classification.category, 'GENERAL')
+        self.assertNotIn('next_step', result.model_dump())
 
     def test_risk_audit_disagreement_requires_review_without_overwriting(self):
         email = {**EMAIL, 'body': 'Reminder for all pending shipments: send SI.'}
         result = classify_email(ClassifyRequest(email=email), self.model)
-        self.assertEqual(result.next_step, 'human_review')
+        self.assertTrue(result.classification.needs_human_review)
         self.assertEqual(result.classification.category, 'BL_COMPARISON')
         self.assertEqual(result.classification.competing_category, 'GENERAL')
         self.assertTrue(result.classification.question_for_user)

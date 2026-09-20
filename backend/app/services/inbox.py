@@ -49,8 +49,8 @@ class InboxClient:
         try:
             decoded = json.loads(data)
             emails = TypeAdapter(list[Email]).validate_python(decoded if email_id is None else [decoded])
-            if len(emails) > 520 or len({email.email_id for email in emails}) != len(emails):
-                raise ValueError('Invalid inbox size or duplicate IDs')
+            if len({email.email_id for email in emails}) != len(emails):
+                raise ValueError('Duplicate email IDs')
             if email_id is not None and (len(emails) != 1 or emails[0].email_id != email_id):
                 raise ValueError('Unexpected email ID')
             return emails

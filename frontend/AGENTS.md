@@ -29,6 +29,6 @@ Scope: everything under `frontend/`. Read the root `AGENTS.md` and README first.
 - Verify keyboard access, visible focus, labels, contrast, and representative narrow and wide layouts for UI changes.
 
 - Run lint, typecheck, and build after changes. Check the page with the backend running and stopped when changing the connection flow.
-- There is no frontend automated test runner yet. Add meaningful behavior tests when introducing features that warrant them; do not claim lint/build are UI tests.
+- Saved extraction storage has focused tests using Node’s built-in runner: `node --experimental-strip-types --test tests/extractionHistory.test.mjs`. Run these when changing history behavior. Add meaningful behavior tests when introducing features that warrant them; do not claim lint/build are UI tests.
 - Coordinate API contracts with `backend/app/api/`. Update the root README when commands, environment variables, or integration behavior change.
 - Do not edit `node_modules/`, `dist/`, or generated TypeScript build metadata. Report verification results and any remaining limitations.

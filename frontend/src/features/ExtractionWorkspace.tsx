@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getExtractionEmail, getExtractionEmails, runExtraction, shipmentFields, type DocumentExtraction, type EmailRecord, type ExtractionResult } from '../lib/api'
 
-export function ExtractionWorkspace() {
+export function ExtractionWorkspace({ onSaveExtraction, storageWarning }: { onSaveExtraction: (result: ExtractionResult, source: 'Extraction Debug') => void; storageWarning: string }) {
   const [ids, setIds] = useState<string[]>([])
   const [selected, setSelected] = useState('')
   const [email, setEmail] = useState<EmailRecord | null>(null)
@@ -36,7 +36,7 @@ export function ExtractionWorkspace() {
         setResult(null)
         const extracted = await runExtraction(selected, abort.signal)
         if (!mounted.current || abort.signal.aborted) return
-        setEmail(extracted.email); setResult(extracted)
+        setEmail(extracted.email); setResult(extracted); onSaveExtraction(extracted, 'Extraction Debug')
         setStatus(extracted.bl.status === 'extracted' && extracted.si.status === 'extracted' ? 'BL and SI extracted. Compare their JSON below; expand source evidence as needed.' : 'Extraction finished with issues. Compare each document’s JSON and warnings below.')
       }
     } catch (cause) {
@@ -68,6 +68,8 @@ export function ExtractionWorkspace() {
       <label className="extraction-email">Email<select value={selected} disabled={busy || !ids.length} onChange={event => { setSelected(event.target.value); setEmail(null); setResult(null); setError(''); setStatus('Request the selected email to continue.') }}><option value="" disabled>Select an email</option>{ids.map(id => <option key={id} value={id}>{id}</option>)}</select></label>
       <div className="run-toolbar"><button className="secondary" disabled={busy || !selected} onClick={() => void request('email')}>Request selected email</button><button disabled={busy || !email || email.email_id !== selected} onClick={() => void request('extract')}>Run extraction test</button>{busy && <button className="secondary" onClick={() => controller.current?.abort()}>Stop request</button>}</div>
       <p role="status">{status}</p>{error && <p className="error" role="alert">{error}</p>}
+      {storageWarning && <p className="error" role="status">{storageWarning}</p>}
+      {result && <p role="status">Extraction saved for reuse in Debug → Comparison{storageWarning ? " during this session" : " in this browser"}.</p>}
       {result && <button className="secondary" disabled={busy} onClick={downloadJson}>Download extraction JSON</button>}
       {email && <details><summary>{email.email_id} · {email.subject || '(No subject)'}</summary><p>From: {email.from}</p><pre>{email.body}</pre><ul>{email.attachments?.map(path => <li key={path}>{path}</li>)}</ul></details>}
     </section>
@@ -75,7 +77,7 @@ export function ExtractionWorkspace() {
       <JsonDocumentPanel kind="BL" result={result?.bl}/>
       <JsonDocumentPanel kind="SI" result={result?.si}/>
     </div>
-    <p className="session-note">Debug results stay in this workspace. Missing or ambiguous fields require review. Comparison and discrepancy reporting have not run.</p>
+    <p className="session-note">Extraction results are saved in this browser for Comparison Debug. Missing or ambiguous fields require review. Comparison and discrepancy reporting have not run.</p>
   </div>
 }
 

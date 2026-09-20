@@ -3,12 +3,21 @@ import { categories, classifyEmail, parseEmails, runPipelineExtraction, type Cat
 import { DocumentPanel } from './ExtractionWorkspace'
 import { InboxSource } from './InboxSource'
 import { Icon } from '../components/Icon'
+import type { ReportClassification } from '../lib/report'
 
 const example = JSON.stringify({ email_id: 'demo_001', from: 'operations@example.com', subject: 'Please check draft BL', body: 'Please compare the attached draft BL with our shipping instructions and confirm the details.', attachments: ['demo_001_SI.txt', 'demo_001_BL.txt'] }, null, 2)
 type Row = { email: EmailRecord; result?: ClassificationResult; error?: string; decision?: { category: Category; note: string }; extraction?: ExtractionResult; extractionError?: string }
 const label = (value: string) => value.replaceAll('_', ' ')
+function nextAction(row: Row, debug: boolean): string {
+  if (row.extraction) return row.extraction.bl.status === 'extracted' && row.extraction.si.status === 'extracted' ? 'Document comparison pending' : 'Review extraction findings'
+  if (row.extractionError) return 'Retry extraction'
+  if (!row.result) return 'Retry classification'
+  if (row.result.classification.needs_human_review && !row.decision) return 'Human review required'
+  if ((row.decision?.category ?? row.result.classification.category) === 'BL_COMPARISON') return debug ? 'Document extraction pending' : 'Extract documents'
+  return 'Classification complete'
+}
 
-export function ClassificationWorkspace({ debug = false, onExtractions }: { debug?: boolean; onExtractions?: (results: ExtractionResult[]) => void }) {
+export function ClassificationWorkspace({ debug = false, onExtractions, onSaveExtraction, onReportClassifications }: { debug?: boolean; onExtractions?: (results: ExtractionResult[]) => void; onSaveExtraction?: (result: ExtractionResult, source: 'Pipeline') => void; onReportClassifications?: (rows: ReportClassification[]) => void }) {
   const [input, setInput] = useState(debug ? example : '')
   const [inputSummary, setInputSummary] = useState(debug ? 'Sample loaded: demo_001. Replace it with Docker email or JSON.' : 'Load an email and its attachments from Docker to begin.')
   const [rows, setRows] = useState<Row[]>([])
@@ -31,7 +40,12 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
 
   useEffect(() => {
     onExtractions?.(rows.flatMap(row => row.extraction ? [row.extraction] : []))
-  }, [rows, onExtractions])
+    onReportClassifications?.(rows.map(row => ({
+      email_id: row.email.email_id,
+      category: row.decision?.category ?? row.result?.classification.category ?? null,
+      needs_human_review: !row.result || (row.result.classification.needs_human_review && !row.decision),
+    })))
+  }, [rows, onExtractions, onReportClassifications])
 
   async function process(emails: EmailRecord[], retry = false) {
     if (controller.current) return
@@ -50,7 +64,10 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
           if (!debug && result.classification.category === 'BL_COMPARISON' && !result.classification.needs_human_review && !abort.signal.aborted) {
             try {
               const extraction = await runPipelineExtraction(email.email_id, abort.signal)
-              if (mounted.current && !abort.signal.aborted) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, extraction, extractionError: undefined } : row))
+              if (mounted.current && !abort.signal.aborted) {
+                setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, extraction, extractionError: undefined } : row))
+                onSaveExtraction?.(extraction, 'Pipeline')
+              }
             } catch (cause) {
               if (mounted.current) setRows(previous => previous.map(row => row.email.email_id === email.email_id ? { ...row, extractionError: abort.signal.aborted ? 'Stopped or timed out. Retry extraction.' : cause instanceof Error ? cause.message : 'Could not extract the documents.' } : row))
             }
@@ -73,7 +90,10 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
     const timeout = window.setTimeout(() => abort.abort(), 120000)
     try {
       const extraction = await runPipelineExtraction(emailId, abort.signal)
-      if (mounted.current && !abort.signal.aborted) setRows(previous => previous.map(row => row.email.email_id === emailId ? { ...row, extraction, extractionError: undefined } : row))
+      if (mounted.current && !abort.signal.aborted) {
+        setRows(previous => previous.map(row => row.email.email_id === emailId ? { ...row, extraction, extractionError: undefined } : row))
+        onSaveExtraction?.(extraction, 'Pipeline')
+      }
     } catch (cause) {
       if (mounted.current) setRows(previous => previous.map(row => row.email.email_id === emailId ? { ...row, extractionError: abort.signal.aborted ? 'Stopped or timed out. Retry extraction.' : cause instanceof Error ? cause.message : 'Could not extract the documents.' } : row))
     } finally {
@@ -102,7 +122,7 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
   }
 
   function download() {
-    const report = { workspace: debug ? 'debug' : 'pipeline', stage: debug ? 'email_classification' : 'classify_and_extract', document_comparison_implemented: true, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, next_step: row.decision ? (row.decision.category === 'BL_COMPARISON' ? 'document_comparison_pending' : 'classification_complete') : row.result?.next_step ?? 'unprocessed', decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
+    const report = { workspace: debug ? 'debug' : 'pipeline', stage: debug ? 'email_classification' : 'classify_and_extract', document_comparison_implemented: true, emails: rows.map(row => ({ ...row, effective_category: row.decision?.category ?? row.result?.classification.category ?? null, decided_by: row.decision ? 'human' : row.result ? 'llm' : null })) }
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = debug ? 'debug-classification-report.json' : 'pipeline-classification-report.json'; document.body.append(anchor); anchor.click(); anchor.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -128,7 +148,7 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
         <div className="section-heading"><div><p className="eyebrow">{debug ? 'Isolated stage test' : 'Start a workflow'}</p><h2 id={`${inputId}-heading`}>{debug ? 'Test email classification' : 'Bring your inbox into focus'}</h2></div><span className="badge blue">{debug ? 'POST /api/v1/classify' : 'Docker inbox'}</span></div>
         <p>{debug ? 'Send email JSON directly to the classifier. Inspect its category, evidence, audit, and review decision below.' : 'Request shipping emails and attachments from Docker to identify the request and route the next action. Comparison requests continue to BL and SI extraction; run comparison below once extraction finishes.'}</p>
         <InboxSource onBusy={setImporting} debug={debug} disabled={busy || importing} onLoad={email => { setInput(JSON.stringify(email, null, 2)); setInputSummary(`${email.email_id} loaded from Docker.`); setError('') }} />
-        {debug && <label className="upload-zone"><Icon name="upload"/><span><strong>Choose inbox files</strong><small>One or more JSON files · up to 520 emails · 10 MB total</small></span><input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} /></label>}
+        {debug && <label className="upload-zone"><Icon name="upload"/><span><strong>Choose inbox files</strong><small>One or more JSON files · 10 MB total</small></span><input type="file" accept=".json,application/json" multiple disabled={busy || importing} onChange={event => void importFiles(event.target.files)} /></label>}
         <p className="input-summary">{inputSummary}</p>
         <details className="json-editor" open={debug || undefined}>
           <summary>{debug ? 'Request body' : 'View requested email JSON'}</summary>
@@ -156,7 +176,7 @@ export function ClassificationWorkspace({ debug = false, onExtractions }: { debu
             {!debug && row.extractionError && <p className="error" role="alert">Extraction: {row.extractionError}</p>}
             {!debug && (row.decision?.category ?? row.result.classification.category) === 'BL_COMPARISON' && (row.decision || !row.result.classification.needs_human_review) && !row.extraction && <button className="secondary" disabled={busy} onClick={() => void extractForEmail(row.email.email_id)}>Retry extraction</button>}
             {!debug && row.extraction && <div className="extraction-pair"><DocumentPanel kind="BL" result={row.extraction.bl}/><DocumentPanel kind="SI" result={row.extraction.si}/></div>}
-            <p className="next-step">Next: {row.extraction ? row.extraction.bl.status === 'extracted' && row.extraction.si.status === 'extracted' ? 'Document comparison pending' : 'Review extraction findings' : row.extractionError ? 'Retry extraction' : row.decision ? row.decision.category === 'BL_COMPARISON' ? 'Extract documents' : 'Classification complete' : label(row.result.next_step)}</p>
+            <p className="next-step">Next: {nextAction(row, debug)}</p>
           </>}
         </article>)}
         {pageCount > 1 && <div className="pagination"><button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}
@@ -175,4 +195,3 @@ function Review({ row, disabled, onConfirm }: { row: Row; disabled: boolean; onC
     <label>Decision note<input value={note} required maxLength={2000} onChange={event => setNote(event.target.value)} placeholder="Explain the confirmed or corrected intent" /></label><button disabled={disabled || !note.trim()}>Confirm decision</button>
   </form>
 }
-

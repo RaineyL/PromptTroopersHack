@@ -46,4 +46,3 @@ class ClassifyResponse(BaseModel):
     classification: Classification
     audit: Audit | None = None
     audit_risk_flags: list[str] = Field(default_factory=list)
-    next_step: Literal['human_review', 'document_comparison_pending', 'classification_complete']

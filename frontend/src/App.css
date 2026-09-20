@@ -168,6 +168,70 @@ input[type=checkbox] { accent-color: var(--blue); width: 16px; height: 16px; }
 
 .extraction-json { max-height: 640px; margin: 12px 0; padding: 16px; overflow: auto; background: #f8fafd; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .extraction-document details .extraction-json { max-height: 460px; }
+.report-inputs { display: grid; gap: 16px; margin: 20px 0; }
+.report-inputs label { display: grid; gap: 8px; font-size: 12px; font-weight: 550; }
+.report-inputs textarea { min-height: 160px; }
+.report-inputs button { justify-self: start; }
+.report-saved-runs { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fafcff; }
+.report-saved-runs select { width: 100%; min-width: 0; }
+.report-saved-runs p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.report-issues { margin: 18px 0; padding: 16px; border: 1px solid #dfcda8; border-radius: 7px; background: var(--amber-tint); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.report-issues ul { margin-bottom: 0; padding-left: 20px; }
+.report-preview { max-height: 500px; }
+
+/* Unified pipeline dashboard; debug workspaces retain their own layouts. */
+.pipeline-intake { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 380px); gap: 18px 28px; align-items: center; }
+.pipeline-intake h2 { font-size: 21px; }
+.pipeline-intake p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.pipeline-intake code, .attachment-list code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.pipeline-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
+.pipeline-intake .error, .pipeline-intake .pipeline-help { grid-column: 1 / -1; margin: 0; }
+.pipeline-help { color: var(--muted); font-size: 12px; }
+.pipeline-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.pipeline-stats > div { background: white; border: 1px solid var(--line); border-radius: 9px; padding: 18px; }
+.pipeline-stats span { color: var(--muted); font-size: 12px; display: block; }
+.pipeline-stats strong { display: block; font-size: 27px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.pipeline-results .section-heading { margin-bottom: 20px; }
+.pipeline-filters { display: flex; gap: 12px; margin-bottom: 18px; }
+.pipeline-filters label { display: grid; gap: 7px; font-size: 12px; color: var(--muted); min-width: 0; }
+.pipeline-filters label:first-child { flex: 1; max-width: 390px; }
+.pipeline-filters button { align-self: end; }
+.pipeline-filters button[aria-pressed='true'] { border-color: #dfcda8; background: var(--amber-tint); color: var(--amber); }
+.pipeline-table-wrap { overflow-x: auto; }
+.pipeline-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.pipeline-table th { color: var(--muted); font-size: 11px; font-weight: 600; background: #f7f9fc; }
+.pipeline-table th, .pipeline-table td { padding: 14px 12px; border-bottom: 1px solid var(--line); }
+.pipeline-table td:first-child { width: 45%; }
+.pipeline-table tr.is-selected { background: var(--blue-tint); }
+.pipeline-table .row-link { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; background: transparent; padding: 3px; color: var(--ink); min-height: 0; }
+.pipeline-table .row-link:hover { background: #e3ecff; }
+.row-link strong, .row-link small { display: block; overflow-wrap: anywhere; }
+.row-link strong { font-size: 13px; font-weight: 600; }
+.row-link small { margin-top: 5px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.outcome.attention { color: var(--amber); font-weight: 600; }
+.pipeline-empty { text-align: center; color: var(--muted); padding: 30px; font-size: 13px; }
+.pipeline-results > .pipeline-help { margin: 18px 0 0; }
+.pipeline-detail { overflow-wrap: anywhere; }
+.pipeline-detail .section-heading { align-items: flex-start; }
+.pipeline-detail h2 { font-size: 20px; }
+.pipeline-detail h3 { margin: 22px 0 8px; font-size: 14px; }
+.pipeline-from { color: var(--muted); font-size: 12px; margin-top: 12px; }
+.pipeline-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; background: #f7f9fc; border: 1px solid var(--line); border-radius: 6px; padding: 14px; max-height: 350px; overflow: auto; }
+.attachment-list { display: grid; gap: 10px; }
+.attachment-list > div { padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
+.attachment-list strong, .attachment-list code { display: block; font-size: 12px; }
+.attachment-list code { color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+.pipeline-finding { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 4px; font-size: 12px; }
+.pipeline-finding ul { line-height: 1.7; }
+.field-list { display: grid; gap: 8px; }
+.field-list > div { display: flex; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 9px 0; }
+.field-list small { width: 100%; color: var(--muted); overflow-wrap: anywhere; }
+.pipeline-detail .review label { display: grid; gap: 6px; }
+.pipeline-detail .review fieldset { border: 1px solid var(--line); margin-bottom: 14px; }
+.pipeline-detail .review fieldset label { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.pipeline-detail .review fieldset input { width: auto; margin: 0; }
+@media (max-width: 900px) { .pipeline-intake { grid-template-columns: 1fr; } .pipeline-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .pipeline-filters { flex-direction: column; } .pipeline-filters label:first-child { max-width: none; } .pipeline-table thead { display: none; } .pipeline-table, .pipeline-table tbody, .pipeline-table tr { display: block; } .pipeline-table tr { border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin-bottom: 10px; } .pipeline-table td, .pipeline-table td:first-child { width: auto; display: flex; align-items: baseline; gap: 12px; padding: 7px; border: 0; overflow-wrap: anywhere; } .pipeline-table td::before { content: attr(data-label); color: var(--muted); min-width: 88px; font-size: 11px; } .pipeline-table td:first-child::before { display: none; } .pipeline-table .row-link { min-width: 0; } .pipeline-actions button { flex: 1; } }
 /* ---- Stage 3: SI versus draft BL comparison ---- */
 /* Status colours always ship with a word and a mark; colour alone carries nothing. */
 .badge.amber { color: var(--amber); background: var(--amber-tint); }

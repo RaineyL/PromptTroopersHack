@@ -13,7 +13,7 @@ ALIASES = {
     'notify_party': ('notify party', 'notify', 'notify party/intermediate consignee', 'also notify'),
     'port_of_loading': ('port of loading', 'port of loading (pol)', 'load port', 'pol', 'loading port'),
     'port_of_discharge': ('port of discharge', 'port of discharge (pod)', 'discharge port', 'pod', 'discharging port', 'destination port'),
-    'container_count': ('container count', 'total containers', 'no. of containers or packages', 'no. of containers', 'number of containers', 'qty/type of container', 'container'),
+    'container_count': ('container count', 'total containers', 'no. of containers or packages', 'no. of containers', 'number of containers', 'qty/type of container', 'containers', 'container'),
     'gross_weight_kg': ('gross weight', 'gross wt (kgs)', 'gross wt', 'gross weight (kg)', 'gross weight (kgs)', 'total gross weight (kg)', 'total gross weight', 'gross wt.', 'gross weight in kgs'),
 }
 LABELS = {alias: field for field, aliases in ALIASES.items() for alias in aliases}
@@ -53,6 +53,9 @@ def _label_line(line: str) -> tuple[str, str] | None:
     for alias in INLINE_ALIASES:
         if lowered == alias:
             return LABELS[alias], ''
+        punctuation = re.match(r'^' + re.escape(alias) + r'\s*[.,]\s*(.+)$', stripped, re.IGNORECASE)
+        if punctuation:
+            return LABELS[alias], punctuation.group(1).strip()
         if lowered.startswith(alias) and len(stripped) > len(alias) and stripped[len(alias)].isspace():
             # Permit 'Consignee (Non-Negotiable) Party', but avoid a prefix
             # inside another word such as 'Containerized'.

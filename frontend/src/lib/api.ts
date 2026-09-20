@@ -41,12 +41,11 @@ export interface ClassificationResult {
   }
   audit: { recommended_category: Category; reason: string; needs_human_review: boolean } | null
   audit_risk_flags: string[]
-  next_step: 'human_review' | 'document_comparison_pending' | 'classification_complete'
 }
 
 export function parseEmails(value: unknown): EmailRecord[] {
   const rows: unknown[] = Array.isArray(value) ? value : [value]
-  if (!rows.length || rows.length > 520) throw new Error('Import between 1 and 520 email records.')
+  if (!rows.length) throw new Error('Import at least one email record.')
   const ids = new Set<string>()
   return rows.map((row) => {
     if (typeof row !== 'object' || row === null || !('email_id' in row) ||
@@ -66,9 +65,9 @@ export function parseEmails(value: unknown): EmailRecord[] {
   })
 }
 
-export async function classifyEmail(email: EmailRecord, signal: AbortSignal): Promise<ClassificationResult> {
+export async function classifyEmail(email: EmailRecord, signal: AbortSignal, sessionId?: string): Promise<ClassificationResult> {
   const response = await fetch('/api/v1/classify', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(sessionId ? { 'X-Inbox-Session': sessionId } : {}) },
     body: JSON.stringify({ email }), signal,
   })
   if (!response.ok) {
@@ -108,8 +107,21 @@ export async function getInboxEmail(id: string, signal: AbortSignal): Promise<Em
   return emails[0]
 }
 
-export async function getInboxAttachment(id: string, path: string, signal: AbortSignal): Promise<Blob> {
+export async function getInboxAttachment(id: string, path: string, signal: AbortSignal, sessionId?: string): Promise<Blob> {
+  if (sessionId) {
+    const response = await fetch(`/api/v1/inbox/emails/${encodeURIComponent(id)}/attachments/${path.split('/').map(encodeURIComponent).join('/')}`, { signal, headers: { 'X-Inbox-Session': sessionId } })
+    if (!response.ok) throw new Error(`Cannot open attachment (${response.status}). Upload the ZIP again if its session expired.`)
+    return response.blob()
+  }
   return (await inboxRequest(`/emails/${encodeURIComponent(id)}/attachments/${path.split('/').map(encodeURIComponent).join('/')}`, signal)).blob()
+}
+
+export async function uploadInbox(file: File, signal: AbortSignal, previousSession?: string): Promise<{ sessionId: string; emails: EmailRecord[] }> {
+  const response = await fetch('/api/v1/inbox/upload', { method: 'POST', headers: { 'Content-Type': 'application/zip', ...(previousSession ? { 'X-Inbox-Session': previousSession } : {}) }, body: file, signal })
+  const data: unknown = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data && typeof data === 'object' && 'detail' in data && typeof data.detail === 'string' ? data.detail : `ZIP upload failed (${response.status}).`)
+  if (!data || typeof data !== 'object' || !('session_id' in data) || typeof data.session_id !== 'string' || !('emails' in data)) throw new Error('Unexpected ZIP upload response.')
+  return { sessionId: data.session_id, emails: parseEmails(data.emails) }
 }
 
 export const shipmentFields = [
@@ -180,9 +192,9 @@ export async function runExtraction(id: string, signal: AbortSignal): Promise<Ex
   return parseExtractionResult(await extractionRequest('', signal, id), id)
 }
 
-export async function runPipelineExtraction(id: string, signal: AbortSignal): Promise<ExtractionResult> {
+export async function runPipelineExtraction(id: string, signal: AbortSignal, sessionId?: string): Promise<ExtractionResult> {
   const response = await fetch('/api/v1/extract', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(sessionId ? { 'X-Inbox-Session': sessionId } : {}) },
     body: JSON.stringify({ email_id: id }), signal,
   })
   const data: unknown = await response.json().catch(() => null)
@@ -254,7 +266,7 @@ export interface CompareResponse {
 export function parseExtraction(value: unknown): ExtractionResult[] {
   const container = value && typeof value === 'object' && 'extractions' in value ? value.extractions : value
   const rows: unknown[] = Array.isArray(container) ? container : [container]
-  if (!rows.length || rows.length > 520) throw new Error('Import between 1 and 520 extraction results.')
+  if (!rows.length) throw new Error('Import at least one extraction result.')
   const ids = new Set<string>()
   return rows.map(row => {
     if (!row || typeof row !== 'object' || !('email' in row)) throw new Error('Use extraction output containing email, bl, and si.')
