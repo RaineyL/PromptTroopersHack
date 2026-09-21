@@ -54,17 +54,9 @@ def _ratio(left: Any, right: Any) -> float:
 
 
 def _display(value: Value | None) -> str:
-    """What the report shows for this value.
-
-    For a party this is the name as it stood beside the label, not the name
-    with the postal address run on after it. The address is not one of the
-    seven checked fields, and showing it here makes two identical parties look
-    different when the source formats punctuate the address differently.
-    """
+    """Show the complete extracted value while comparison uses its normalized form."""
     if value is None:
         return ''
-    if value.present and 'address' in value.extra and value.extra.get('name'):
-        return str(value.extra['name']).strip()
     return str(value.raw).strip()
 
 
@@ -160,12 +152,18 @@ def _to_values(document: dict[str, Any], labelled: dict[str, tuple[str, str]]) -
         label, name_line = '', None
         if field in labelled:
             label, name_line = labelled[field]
+        elif document.get('canonical') and field in ('shipper', 'consignee', 'notify_party'):
+            # The extraction response has already parsed the source. Its field
+            # evidence retains the name line even when the canonical value
+            # joins the following address lines into one string.
+            label, name_line = (document.get('party_name_lines') or {}).get(field, ('', None))
 
         # What the document itself wrote beside the label wins over the
         # extracted field. An extractor that meets a blank label can run on
         # into the next line and report a neighbouring field's text as this
         # one's value; the label line is the evidence that it was blank.
-        raw = name_line if name_line is not None else fields.get(field)
+        raw = fields.get(field) if document.get('canonical') and name_line is not None else (
+            name_line if name_line is not None else fields.get(field))
 
         if document.get('canonical') and field in ('container_count', 'gross_weight_kg'):
             try:

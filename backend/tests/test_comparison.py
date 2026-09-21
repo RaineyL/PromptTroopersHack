@@ -202,6 +202,20 @@ class ExtractionContractTests(unittest.TestCase):
         self.assertEqual(result['si_document'], 'folder/instructions.txt')
         self.assertEqual(len(result['fields']), 7)
 
+    def test_party_addresses_remain_visible_and_names_compare_from_evidence(self):
+        si = self.payload['si']['fields']['shipper']
+        bl = self.payload['bl']['fields']['shipper']
+        si['value'] = 'APRIL FINE PAPER TRADING (MIDDLE EAST) FZE | #813, 4 EA, DUBAI AIRPORT FREE ZONE'
+        si['evidence'] = 'Shipper: ' + si['value']
+        bl['value'] = 'APRIL FINE PAPER TRADING (MIDDLE EAST) FZE #813, 4 EA, DUBAI AIRPORT FREE ZONE'
+        bl['evidence'] = 'Shipper/Exporter: APRIL FINE PAPER TRADING (MIDDLE EAST) FZE\n#813, 4 EA, DUBAI AIRPORT FREE ZONE'
+        result = self.compare()
+        row = next(item for item in result['fields'] if item['field'] == 'shipper')
+        self.assertEqual(row['status'], 'match')
+        self.assertEqual(row['si_value'], si['value'])
+        self.assertEqual(row['bl_value'], bl['value'])
+        self.assertEqual(result['status'], 'OK')
+
     def test_extracted_values_are_authoritative_over_source_text(self):
         self.payload['bl']['source_text'] = BL_TEXT
         self.payload['bl']['fields']['container_count']['value'] = '5'

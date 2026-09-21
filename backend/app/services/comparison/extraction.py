@@ -2,6 +2,20 @@
 from app.schemas.extraction import ExtractionResponse
 from app.schemas.comparison import CompareResponse
 from app.services.comparison.engine import compare_pair
+from app.services.comparison.labels import read_labelled_lines
+
+
+def _party_name_lines(document) -> dict[str, tuple[str, str]]:
+    if document.fields is None:
+        return {}
+    names = {}
+    for key in ('shipper', 'consignee', 'notify_party'):
+        field = getattr(document.fields, key)
+        if field.value is not None and field.evidence:
+            labelled = read_labelled_lines(field.evidence)
+            if key in labelled:
+                names[key] = labelled[key]
+    return names
 
 
 def compare_extractions(extractions: list[ExtractionResponse]) -> CompareResponse:
@@ -26,6 +40,7 @@ def compare_extractions(extractions: list[ExtractionResponse]) -> CompareRespons
             documents[side] = {
                 'file': document.attachments[0] if len(document.attachments) == 1 else None,
                 'fields': {key: field.value for key, field in document.fields} if document.fields else {},
+                'party_name_lines': _party_name_lines(document),
                 # Canonical extraction values already carry normalised units.
                 'canonical': True,
             }
