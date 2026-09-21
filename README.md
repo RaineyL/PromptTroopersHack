@@ -1,6 +1,6 @@
 # PromptTroopersHack
 
-Shipping email classification, document extraction, and SI/BL comparison with FastAPI and React. Integrates the latest `classify_POC` DeepSeek-only review gate, prompts, and second-pass DeepSeek audit as a self-contained backend package. No sibling POC folder is required at runtime.
+Shipping email classification, document extraction, and SI/BL comparison with FastAPI and React.
 
 The Pipeline dashboard accepts a ZIP containing `inbox/*.json` and `attachments/` (optionally inside one enclosing folder). Upload it, run the pipeline, filter by category, and click an email to inspect its message, TXT attachments, and other attachment paths. There is no fixed email-count limit; the dashboard pages large result tables. The backend retains up to four temporary ZIP sessions in memory while active, with a four-hour idle expiry. Each archive is limited to 50 MB compressed and 100 MB of uncompressed source data. Debug still uses Docker and optional JSON inputs independently. The UI runs DeepSeek-only classification and supports human review and JSON report export. Failed emails can be retried. Results and decisions are session-only; export before leaving. Completed extraction snapshots are saved in this browser for Debug reuse. Requests are sequential and completed results remain visible if a later email fails. Stopping a batch cancels browser requests; an in-flight provider call may finish on the server.
 
