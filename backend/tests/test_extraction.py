@@ -99,6 +99,12 @@ class ExtractionTests(unittest.TestCase):
         result = extract_email(email, inbox)
         self.assertEqual(result.bl.status, 'needs_review')
         self.assertEqual(result.si.status, 'needs_review')
+        self.assertEqual(result.bl.warnings, [
+            'We found more than one Bill of Lading (BL). Please confirm which attachment to use.'
+        ])
+        self.assertEqual(result.si.warnings, [
+            'The Shipping Instruction (SI) is missing. Please attach it before comparing the documents.'
+        ])
         inbox.attachment.assert_not_called()
 
     def test_wrong_document_and_missing_evidence_require_review(self):
@@ -109,9 +115,13 @@ class ExtractionTests(unittest.TestCase):
         result = extract_email(email, inbox)
         self.assertIsNone(result.bl.fields)
         self.assertEqual(result.bl.status, 'needs_review')
+        self.assertEqual(result.bl.warnings, [
+            'We could not confirm that this attachment is a Bill of Lading (BL). Please check it.'
+        ])
         self.assertIsNone(result.si.fields.shipper.value)
         self.assertEqual(result.si.fields.gross_weight_kg.value, '1200')
-        self.assertIn('unit inferred', ' '.join(result.si.warnings))
+        self.assertIn('The gross weight is listed without a unit. We assumed kilograms (kg); please confirm the correct unit.', result.si.warnings)
+        self.assertIn('We could not find the shipper in this document. Please check it.', result.si.warnings)
 
     def test_shared_parser_handles_reference_aliases_and_conflicts(self):
         fields, warnings = extract_fields(BL.decode())
@@ -126,7 +136,7 @@ class ExtractionTests(unittest.TestCase):
         text = BL.decode() + 'Gross Weight (KG): 30,000 KG\n'
         fields, warnings = extract_fields(text)
         self.assertIsNone(fields.gross_weight_kg.value)
-        self.assertIn('conflicting', ' '.join(warnings))
+        self.assertIn('We found different gross weight values in this document. Please confirm which one is correct.', warnings)
 
     def test_document_readers(self):
         self.assertEqual(read_document('SI.txt', b'Shipper: Example'), 'Shipper: Example')

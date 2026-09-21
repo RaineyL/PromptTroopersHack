@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from app.services.comparison.labels import FIELDS, read_labelled_lines
+from app.services.comparison.labels import FIELDS, FIELD_TITLES, read_labelled_lines
 from app.services.comparison.normalize import NORMALISERS, Value
 
 _FILENAME = re.compile(r'^(?P<email_id>.+?)_(?P<kind>SI|BL)\.[A-Za-z0-9]+$', re.IGNORECASE)
@@ -85,8 +85,7 @@ def _compare_text(field: str, si: Value, bl: Value, policy: Policy, same_above: 
     if score <= policy.different_below:
         return _row(field, 'mismatch', si, bl, f'Different value (similarity {score:.2f}).', score)
     return _row(field, 'review', si, bl,
-                f'Too close to call: similarity {score:.2f} sits between a typing error and a '
-                f'real difference, so this needs a person.', score)
+                'The SI and BL values are similar but not the same. Please check whether the difference matters.', score)
 
 
 def _compare_port(field: str, si: Value, bl: Value, policy: Policy) -> dict[str, Any]:
@@ -139,8 +138,8 @@ def compare_field(field: str, si: Value | None, bl: Value | None, policy: Policy
                   if value is None or not value.present]
     if missing_in:
         return _row(field, 'review', si, bl,
-                    f'The value is blank, a placeholder, or unreadable in the '
-                    f'{" and ".join(missing_in)}, so there is nothing to compare against.')
+                    f'The value is missing or could not be read in the '
+                    f'{" and ".join(missing_in)}, so there is nothing to compare against. Please check the document.')
     if field in ('port_of_loading', 'port_of_discharge'):
         return _compare_port(field, si, bl, policy)
     if field in ('container_count', 'gross_weight_kg'):
@@ -263,8 +262,9 @@ def compare_pair(email_id: str, si_document: dict[str, Any] | None,
         unresolved = [row for row in result['fields']
                       if row['status'] == 'review' and 'nothing to compare against' in row['reason']]
         result['review_reason'] = 'missing_value' if unresolved else 'uncertain_value'
-        result['review_detail'] = ', '.join(
-            f'{row["field"]}: {row["reason"]}' for row in result['fields'] if row['status'] == 'review')
+        result['review_detail'] = '; '.join(
+            f'{FIELD_TITLES[row["field"]]}: {row["reason"]}'
+            for row in result['fields'] if row['status'] == 'review')
 
     return result
 

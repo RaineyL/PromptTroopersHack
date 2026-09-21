@@ -219,11 +219,11 @@ export const fieldTitles: Record<CheckedField, string> = {
 }
 
 export const reviewReasons: Record<ReviewReason, string> = {
-  missing_attachment: 'An expected document was not attached to the email.',
-  wrong_doc_type: 'An attachment is not the document it is named as.',
-  unreadable: 'A document could not be read, so nothing in it was checked.',
-  missing_value: 'A value the check needs is blank or a placeholder.',
-  uncertain_value: 'The two values are too close to call automatically.',
+  missing_attachment: 'A document needed for comparison is missing.',
+  wrong_doc_type: 'An attachment may be the wrong document.',
+  unreadable: 'A document could not be read, so it was not compared.',
+  missing_value: 'A required detail is missing from a document.',
+  uncertain_value: 'Some document details need confirmation before comparison.',
 }
 
 export interface FieldComparison {

@@ -22,7 +22,7 @@ def compare_extractions(extractions: list[ExtractionResponse]) -> CompareRespons
                 reason = 'uncertain_value'
             if reason:
                 detail = '; '.join(document.warnings + ([document.error] if document.error else []))
-                blockers.append((reason, f'{side.upper()}: {detail or "Resolve extraction findings before comparison."}'))
+                blockers.append((reason, f'{side.upper()}: {detail or "Please check this document before comparing it."}'))
             documents[side] = {
                 'file': document.attachments[0] if len(document.attachments) == 1 else None,
                 'fields': {key: field.value for key, field in document.fields} if document.fields else {},

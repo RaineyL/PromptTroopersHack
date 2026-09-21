@@ -128,6 +128,8 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(result['status'], 'NEEDS_REVIEW')
         self.assertEqual(result['review_reason'], 'missing_value')
         self.assertEqual(result['review_fields'], ['gross_weight_kg'])
+        self.assertIn('Gross weight (kg): The value is missing or could not be read in the BL', result['review_detail'])
+        self.assertNotIn('gross_weight_kg', result['review_detail'])
 
     def test_a_close_call_is_escalated_rather_than_guessed(self):
         close = BL_TEXT.replace('Notify: EAST BRIGHT FZ-LLC', 'Notify: EAST BRIGHT HOLDINGS')
@@ -227,6 +229,16 @@ class ExtractionContractTests(unittest.TestCase):
                 self.assertEqual(result['status'], 'NEEDS_REVIEW')
                 self.assertEqual(result['fields'], [])
                 self.payload['bl'] = original
+
+    def test_extraction_warning_is_shown_in_plain_language(self):
+        self.payload['bl']['status'] = 'needs_review'
+        self.payload['bl']['warnings'] = [
+            'The gross weight is listed without a unit. We assumed kilograms (kg); please confirm the correct unit.'
+        ]
+        result = self.compare()
+        self.assertEqual(result['review_reason'], 'uncertain_value')
+        self.assertIn('BL: The gross weight is listed without a unit.', result['review_detail'])
+        self.assertEqual(result['fields'], [])
 
     def test_missing_field_requires_review(self):
         self.payload['bl']['fields']['shipper']['value'] = None

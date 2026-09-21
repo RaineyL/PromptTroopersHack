@@ -149,6 +149,7 @@ def extract_fields(text: str) -> tuple[ShipmentFields, list[str]]:
     fields = {}
     warnings = []
     for name in FIELD_NAMES:
+        field_name = name.removesuffix('_kg').replace('_', ' ')
         candidates = []
         for raw, evidence in observations[name]:
             value = _normalize(name, raw, evidence)
@@ -157,13 +158,13 @@ def extract_fields(text: str) -> tuple[ShipmentFields, list[str]]:
         unique = {value for value, _ in candidates}
         if len(unique) > 1:
             fields[name] = ExtractedField(value=None, evidence=None)
-            warnings.append(f'{name}: conflicting values; review required.')
+            warnings.append(f'We found different {field_name} values in this document. Please confirm which one is correct.')
         elif candidates:
             value, evidence = candidates[0]
             if name == 'gross_weight_kg' and not re.search(r'\b(?:kg|kgs|kilograms?|mt|mts|metric\s+tons?)\b', evidence, re.IGNORECASE):
-                warnings.append('gross_weight_kg: unit inferred as kg from the gross-weight label; review required.')
+                warnings.append('The gross weight is listed without a unit. We assumed kilograms (kg); please confirm the correct unit.')
             fields[name] = ExtractedField(value=value[:4000], evidence=evidence[:8000])
         else:
             fields[name] = ExtractedField(value=None, evidence=None)
-            warnings.append(f'{name}: value unavailable or placeholder; review required.')
+            warnings.append(f'We could not find the {field_name} in this document. Please check it.')
     return ShipmentFields(**fields), warnings
