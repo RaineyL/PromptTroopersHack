@@ -109,7 +109,10 @@ export function ComparisonWorkspace({ debug = false, extractions = [], savedExtr
   }
 
   const results = response?.results ?? []
-  const effective = (result: ComparisonResult): CompareStatus => decisions[result.email_id]?.status ?? result.status
+  const effective = (result: ComparisonResult): CompareStatus => {
+    const s = decisions[result.email_id]?.status ?? result.status
+    return s === 'UNABLE_TO_VERIFY' ? 'NEEDS_REVIEW' : s
+  }
   const outstanding = results.filter(result => (result.status === 'NEEDS_REVIEW' || result.review_fields.length > 0) && !decisions[result.email_id]).length
 
   // Counts follow the effective status, so resolving a review case moves the
@@ -289,9 +292,9 @@ export function ComparisonWorkspace({ debug = false, extractions = [], savedExtr
         })}
 
         {pageCount > 1 && <div className="pagination">
-          <button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+          <button className="secondary" disabled={currentPage === 0} onClick={() => { setPage(currentPage - 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Previous</button>
           <span>Page {currentPage + 1} of {pageCount}</span>
-          <button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+          <button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => { setPage(currentPage + 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Next</button>
         </div>}
 
         <p className="session-note"><Icon name="info" />Session-only results. Export the report before leaving or starting a new run. Review unresolved extraction findings or field decisions before closing a review case.</p>

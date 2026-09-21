@@ -7,9 +7,10 @@ export interface ReportClassification {
 }
 
 export interface ReportDecision {
-  status: 'OK' | 'MISMATCH'
+  status: 'OK' | 'MISMATCH' | 'UNABLE_TO_VERIFY'
   fields: CheckedField[]
   note: string
+  reasons?: string[]
 }
 
 export interface ReportComparison {
@@ -60,8 +61,29 @@ export function buildSubmission(classifications: ReportClassification[], compari
       continue
     }
     const decision = comparison?.decisions[item.email_id]
-    if (result.review_fields.length && !decision) {
-      // A mixed mismatch/review result is not complete enough to report a defect.
+    if (decision?.status === 'UNABLE_TO_VERIFY') {
+      let mappedReason: ReviewReason = 'missing_attachment'
+      const noteLower = (decision.note || '').toLowerCase()
+      if (noteLower.includes('extraction') || noteLower.includes('unreadable')) {
+        mappedReason = 'unreadable'
+      } else if (noteLower.includes('multiple') || noteLower.includes('wrong')) {
+        mappedReason = 'wrong_doc_type'
+      } else if (noteLower.includes('missing')) {
+        mappedReason = 'missing_attachment'
+      } else {
+        mappedReason = result.review_reason ?? 'missing_attachment'
+      }
+      submission[item.email_id] = {
+        category: item.category,
+        status: 'NEEDS_REVIEW',
+        review_reason: mappedReason,
+        defect_fields: [],
+        has_defect: false,
+      }
+      continue
+    }
+    if (result.review_fields.length && !result.defect_fields.length && !decision) {
+      // Only an unconfirmed review without any defect is exported as NEEDS_REVIEW.
       submission[item.email_id] = { category: item.category, status: 'NEEDS_REVIEW', review_reason: result.review_reason ?? 'uncertain_value', defect_fields: [], has_defect: false }
       continue
     }
@@ -124,7 +146,7 @@ export function parseComparisonReport(value: unknown): ReportComparison {
     }
     if (row.human_decision) {
       const decision = record(row.human_decision)
-      if (!['OK', 'MISMATCH'].includes(String(decision.status)) || !Array.isArray(decision.fields) ||
+      if (!['OK', 'MISMATCH', 'UNABLE_TO_VERIFY'].includes(String(decision.status)) || !Array.isArray(decision.fields) ||
           !decision.fields.every((field: unknown) => checkedFields.includes(field as CheckedField)) || typeof decision.note !== 'string' || !decision.note.trim()) {
         throw new Error('Invalid human decision in comparison export.')
       }

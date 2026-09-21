@@ -143,7 +143,7 @@ class ComparisonTests(unittest.TestCase):
                               document('email_901_BL.txt', changed))
         self.assertEqual(result['status'], 'MISMATCH')
         self.assertEqual(result['defect_fields'], ['container_count'])
-        self.assertEqual(result['review_fields'], ['gross_weight_kg'])
+        self.assertEqual(result['review_fields'], [])
 
     def test_documents_are_paired_by_email_id(self):
         outcome = compare_documents([

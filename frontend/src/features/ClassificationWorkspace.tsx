@@ -179,7 +179,7 @@ export function ClassificationWorkspace({ debug = false, onExtractions, onSaveEx
             <p className="next-step">Next: {nextAction(row, debug)}</p>
           </>}
         </article>)}
-        {pageCount > 1 && <div className="pagination"><button className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div>}
+        {pageCount > 1 && <div className="pagination"><button className="secondary" disabled={currentPage === 0} onClick={() => { setPage(currentPage - 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button className="secondary" disabled={currentPage + 1 === pageCount} onClick={() => { setPage(currentPage + 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Next</button></div>}
         <p className="session-note"><Icon name="info"/>{debug ? 'Session-only classification results. Export before leaving.' : 'Session-only results. Export before leaving or starting a new run. Comparison results are shown and exported separately below.'}</p>
       </section>
     </div>

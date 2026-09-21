@@ -37,12 +37,26 @@ test('unresolved reviews export as explicit NEEDS_REVIEW without claiming a clea
     classification('email_001', 'GENERAL', true),
     classification('email_002', 'BL_COMPARISON', true),
     classification('email_003'),
-  ], snapshot([compared('email_003', 'MISMATCH', ['consignee'], ['shipper'], 'uncertain_value')]))
+  ], snapshot([compared('email_003', 'NEEDS_REVIEW', [], ['shipper'], 'uncertain_value')]))
   assert.deepEqual(issues, [])
   assert.deepEqual(submission, Object.fromEntries(['email_001', 'email_002', 'email_003'].map(id => [id, {
     category: id === 'email_001' ? 'GENERAL' : 'BL_COMPARISON',
     status: 'NEEDS_REVIEW', review_reason: 'uncertain_value', defect_fields: [], has_defect: false,
   }])))
+})
+
+test('a confirmed defect outranks an unclear field and exports directly as MISMATCH', () => {
+  const { submission, issues } = buildSubmission([
+    classification('email_004'),
+  ], snapshot([compared('email_004', 'MISMATCH', ['consignee'], ['shipper'], 'uncertain_value')]))
+  assert.deepEqual(issues, [])
+  assert.deepEqual(submission.email_004, {
+    category: 'BL_COMPARISON',
+    status: 'MISMATCH',
+    review_reason: null,
+    defect_fields: ['consignee'],
+    has_defect: true,
+  })
 })
 
 test('human comparison decisions override review status and require named mismatch fields', () => {
@@ -65,6 +79,12 @@ test('a blocked comparison stays unresolved unless a human explicitly changes it
   assert.deepEqual(decided.issues, [])
   assert.equal(decided.submission.email_004.status, 'OK')
   assert.equal(decided.submission.email_004.review_reason, null)
+
+  const unable = buildSubmission(rows, snapshot([blocked], { email_004: { status: 'UNABLE_TO_VERIFY', fields: [], note: 'SI document missing', reasons: ['SI document missing'] } }))
+  assert.deepEqual(unable.issues, [])
+  assert.equal(unable.submission.email_004.status, 'NEEDS_REVIEW')
+  assert.equal(unable.submission.email_004.review_reason, 'missing_attachment')
+  assert.equal(unable.submission.email_004.has_defect, false)
 })
 
 test('debug stage reads existing classification and comparison exports', () => {

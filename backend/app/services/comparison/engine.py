@@ -251,14 +251,13 @@ def compare_pair(email_id: str, si_document: dict[str, Any] | None,
 
     if result['defect_fields']:
         # A confirmed discrepancy is actionable even when another field is
-        # unclear, so it outranks review. Nothing actionable plus something
-        # unclear does not.
+        # unclear, so it outranks review. If any field has a defect, the email
+        # is directly and completely a mismatch.
         result['status'] = 'MISMATCH'
         result['has_defect'] = True
-        if result['review_fields']:
-            result['review_detail'] = (
-                f'{len(result["review_fields"])} further field(s) could not be checked and still '
-                f'need a person.')
+        result['review_fields'] = []
+        result['review_reason'] = None
+        result['review_detail'] = None
     elif result['review_fields']:
         result['status'] = 'NEEDS_REVIEW'
         unresolved = [row for row in result['fields']

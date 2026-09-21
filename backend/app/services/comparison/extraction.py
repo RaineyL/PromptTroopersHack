@@ -30,7 +30,7 @@ def compare_extractions(extractions: list[ExtractionResponse]) -> CompareRespons
                 'canonical': True,
             }
         result = compare_pair(extraction.email.email_id, documents['si'], documents['bl'])
-        if blockers:
+        if blockers and not result.get('defect_fields'):
             result.update(status='NEEDS_REVIEW', review_reason=blockers[0][0],
                           review_detail='; '.join(detail for _, detail in blockers),
                           fields=[], defect_fields=[], review_fields=[], has_defect=False)
