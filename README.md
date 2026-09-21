@@ -1,7 +1,7 @@
 # PromptTroopersHack
 
 PromptTroopersHack is a system that allows **shipping email classification, document extraction, and SI/BL comparison**, built with **FastAPI and React**.
-
+ 
 The system uses **DeepSeek (LLM) for email classification**, **extracts BL/SI documents for comparison requests**, **checks them against each other**, **routes uncertain cases to a human**, and **generates a JSON report**.
 
 ---
