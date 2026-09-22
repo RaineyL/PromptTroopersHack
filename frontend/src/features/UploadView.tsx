@@ -98,7 +98,7 @@ export function UploadView({ pipeline, onNavigate }: UploadViewProps) {
                   ? `, including ${reportReviewCount} requiring a human decision`
                   : ''
               }.`
-            : 'Upload a bundle to begin. Classification uses the configured DeepSeek API.'}
+            : 'Upload a bundle to begin.'}
         </p>
       </section>
 

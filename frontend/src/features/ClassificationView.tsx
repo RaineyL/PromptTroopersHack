@@ -7,7 +7,6 @@ import {
 import { Icon } from '../components/Icon'
 import {
   classificationNeedsDecision,
-  needsReview,
   type PipelineState,
 } from '../lib/usePipelineState'
 
@@ -29,7 +28,6 @@ export function ClassificationView({ pipeline, onNavigate }: ClassificationViewP
   } = pipeline
 
   const [filter, setFilter] = useState<Category | 'ALL'>('ALL')
-  const [reviewOnly, setReviewOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<string | null>(null)
@@ -88,14 +86,13 @@ export function ClassificationView({ pipeline, onNavigate }: ClassificationViewP
       rows.filter(row => {
         const cat =
           row.categoryDecision?.category ?? row.classification?.classification.category
-        const matchesReview = !reviewOnly || needsReview(row)
         const matchesCategory = filter === 'ALL' || cat === filter
         const matchesSearch = `${row.email.email_id} ${row.email.subject ?? ''} ${row.email.from ?? ''}`
           .toLowerCase()
           .includes(search.toLowerCase())
-        return matchesReview && matchesCategory && matchesSearch
+        return matchesCategory && matchesSearch
       }),
-    [rows, filter, reviewOnly, search]
+    [rows, filter, search]
   )
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
@@ -196,18 +193,6 @@ export function ClassificationView({ pipeline, onNavigate }: ClassificationViewP
               ))}
             </select>
           </label>
-          <button
-            className="secondary"
-            aria-pressed={reviewOnly}
-            onClick={() => {
-              setReviewOnly(!reviewOnly)
-              setFilter('ALL')
-              setSearch('')
-              setPage(0)
-            }}
-          >
-            {reviewOnly ? 'Show all emails' : `Needs decision (${pendingReviewCount})`}
-          </button>
         </div>
 
         <div className="pipeline-table-wrap">
